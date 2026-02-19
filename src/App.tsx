@@ -11,9 +11,21 @@ import Dashboard from "@/pages/Dashboard";
 import ClassesPage from "@/pages/ClassesPage";
 import LiveClassPage from "@/pages/LiveClassPage";
 import ExamPage from "@/pages/ExamPage";
+import UsersPage from "@/pages/UsersPage";
+import SchoolsPage from "@/pages/SchoolsPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
+import SettingsPage from "@/pages/SettingsPage";
+import CalendarPage from "@/pages/CalendarPage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+    },
+  },
+});
 
 const AppRoutes = () => {
   const { user, loading } = useAuth();
@@ -29,41 +41,31 @@ const AppRoutes = () => {
     );
   }
 
+  const wrap = (Page: React.ComponentType) => (
+    <ProtectedRoute>
+      <AppLayout><Page /></AppLayout>
+    </ProtectedRoute>
+  );
+
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
-      
-      <Route path="/dashboard" element={
-        <ProtectedRoute>
-          <AppLayout><Dashboard /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/classes" element={
-        <ProtectedRoute>
-          <AppLayout><ClassesPage /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/live-class" element={
-        <ProtectedRoute>
-          <AppLayout><LiveClassPage /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/exams" element={
-        <ProtectedRoute>
-          <AppLayout><ExamPage /></AppLayout>
-        </ProtectedRoute>
-      } />
-      {/* Catch-all routes that redirect to dashboard */}
-      <Route path="/content" element={<ProtectedRoute><AppLayout><ClassesPage /></AppLayout></ProtectedRoute>} />
-      <Route path="/teachers" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      <Route path="/students" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      <Route path="/results" element={<ProtectedRoute><AppLayout><ExamPage /></AppLayout></ProtectedRoute>} />
-      <Route path="/schools" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      <Route path="/users" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-      
+
+      <Route path="/dashboard" element={wrap(Dashboard)} />
+      <Route path="/classes" element={wrap(ClassesPage)} />
+      <Route path="/content" element={wrap(ClassesPage)} />
+      <Route path="/live-class" element={wrap(LiveClassPage)} />
+      <Route path="/exams" element={wrap(ExamPage)} />
+      <Route path="/results" element={wrap(ExamPage)} />
+      <Route path="/users" element={wrap(UsersPage)} />
+      <Route path="/teachers" element={wrap(UsersPage)} />
+      <Route path="/students" element={wrap(UsersPage)} />
+      <Route path="/schools" element={wrap(SchoolsPage)} />
+      <Route path="/analytics" element={wrap(AnalyticsPage)} />
+      <Route path="/settings" element={wrap(SettingsPage)} />
+      <Route path="/calendar" element={wrap(CalendarPage)} />
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
