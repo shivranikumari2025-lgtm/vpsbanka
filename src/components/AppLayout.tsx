@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   GraduationCap, LayoutDashboard, BookOpen, Users, Settings,
   LogOut, ChevronLeft, ChevronRight, PlayCircle, FileText,
-  BarChart3, School, Upload, ClipboardList, Bell, Search, Menu
+  BarChart3, School, Upload, ClipboardList, Bell, Search, Menu, Calendar
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -20,25 +20,29 @@ const ROLE_MENUS = {
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Classes', icon: BookOpen, path: '/classes' },
     { label: 'Content', icon: FileText, path: '/content' },
-    { label: 'Teachers', icon: Users, path: '/teachers' },
-    { label: 'Students', icon: GraduationCap, path: '/students' },
+    { label: 'Users', icon: Users, path: '/users' },
     { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+    { label: 'Settings', icon: Settings, path: '/settings' },
   ],
   teacher: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'My Classes', icon: BookOpen, path: '/classes' },
     { label: 'Content Manager', icon: Upload, path: '/content' },
     { label: 'Live Class', icon: PlayCircle, path: '/live-class' },
+    { label: 'Calendar', icon: Calendar, path: '/calendar' },
     { label: 'Exams', icon: ClipboardList, path: '/exams' },
+    { label: 'My Students', icon: Users, path: '/students' },
   ],
   student: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'My Classes', icon: BookOpen, path: '/classes' },
     { label: 'Live Class', icon: PlayCircle, path: '/live-class' },
+    { label: 'Calendar', icon: Calendar, path: '/calendar' },
     { label: 'Exams', icon: ClipboardList, path: '/exams' },
     { label: 'Results', icon: BarChart3, path: '/results' },
   ],
 };
+
 
 const ROLE_COLORS = {
   super_admin: 'from-violet-500 to-purple-600',
