@@ -1,11 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  Pen, Eraser, MousePointer, Trash2, Download, Users
+  Pen, Eraser, MousePointer, Trash2, Download
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 interface Material {
   id: string;
@@ -19,7 +21,6 @@ interface Props {
   material: Material;
   onClose: () => void;
   canTeach: boolean;
-  sessionId?: string;
 }
 
 type Tool = 'pointer' | 'pen' | 'eraser';
@@ -29,13 +30,14 @@ interface Annotation {
   points: { x: number; y: number }[];
   color: string;
   width: number;
+  page: number;
 }
 
 const COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#000000', '#FFFFFF'];
 
-const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionId }) => {
-  const { profile } = useAuth();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach }) => {
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+  const annotCanvasRef = useRef<HTMLCanvasElement>(null);
   const [tool, setTool] = useState<Tool>('pointer');
   const [color, setColor] = useState('#EF4444');
   const [lineWidth, setLineWidth] = useState(3);
@@ -45,21 +47,73 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
   const [fullscreen, setFullscreen] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [page, setPage] = useState(1);
-  const [totalPages] = useState(5); // demo
-  const [liveStudents] = useState(Math.floor(Math.random() * 20) + 5);
+  const [totalPages, setTotalPages] = useState(1);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState('');
 
   const isPDF = material.file_url && (material.file_type?.includes('pdf') || material.file_url?.endsWith('.pdf'));
   const isImage = material.file_url && material.file_type?.startsWith('image/');
+  const fileUrl = material.file_url;
 
-  const drawAllAnnotations = useCallback((canvas: HTMLCanvasElement, anns: Annotation[]) => {
+  // Load PDF document
+  useEffect(() => {
+    if (!isPDF || !fileUrl) return;
+    setPdfLoading(true);
+    setPdfError('');
+    
+    const loadPDF = async () => {
+      try {
+        const doc = await pdfjsLib.getDocument({ url: fileUrl, cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/cmaps/', cMapPacked: true }).promise;
+        setPdfDoc(doc);
+        setTotalPages(doc.numPages);
+        setPdfLoading(false);
+      } catch (err: any) {
+        setPdfError(err?.message || 'Failed to load PDF');
+        setPdfLoading(false);
+      }
+    };
+    loadPDF();
+  }, [fileUrl, isPDF]);
+
+  // Render current page
+  useEffect(() => {
+    if (!pdfDoc || !pdfCanvasRef.current) return;
+    
+    const renderPage = async () => {
+      const pdfPage = await pdfDoc.getPage(page);
+      const scale = (zoom / 100) * 1.5;
+      const viewport = pdfPage.getViewport({ scale });
+      
+      const canvas = pdfCanvasRef.current!;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      
+      const ctx = canvas.getContext('2d')!;
+      await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+
+      // Resize annotation canvas to match
+      if (annotCanvasRef.current) {
+        annotCanvasRef.current.width = viewport.width;
+        annotCanvasRef.current.height = viewport.height;
+        drawPageAnnotations();
+      }
+    };
+    renderPage();
+  }, [pdfDoc, page, zoom]);
+
+  const drawPageAnnotations = useCallback(() => {
+    const canvas = annotCanvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    anns.forEach(ann => {
+    
+    const pageAnns = annotations.filter(a => a.page === page);
+    pageAnns.forEach(ann => {
       if (ann.points.length < 2) return;
       ctx.beginPath();
-      ctx.strokeStyle = ann.tool === 'eraser' ? '#FFFFFF' : ann.color;
+      ctx.strokeStyle = ann.tool === 'eraser' ? 'rgba(255,255,255,1)' : ann.color;
       ctx.lineWidth = ann.tool === 'eraser' ? ann.width * 5 : ann.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -67,40 +121,33 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
       ann.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
       ctx.stroke();
     });
-  }, []);
+  }, [annotations, page]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    drawAllAnnotations(canvas, annotations);
-  }, [annotations, drawAllAnnotations]);
+  useEffect(() => { drawPageAnnotations(); }, [drawPageAnnotations]);
 
-  const getPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
+  const getPos = (e: React.MouseEvent, canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect();
-    if ('touches' in e) {
-      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
-    }
-    return { x: (e as React.MouseEvent).clientX - rect.left, y: (e as React.MouseEvent).clientY - rect.top };
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
   };
 
   const startDraw = (e: React.MouseEvent) => {
     if (tool === 'pointer' || !canTeach) return;
-    const canvas = canvasRef.current!;
+    const canvas = annotCanvasRef.current!;
     const pos = getPos(e, canvas);
-    const ann: Annotation = { tool: tool as 'pen' | 'eraser', points: [pos], color, width: lineWidth };
+    const ann: Annotation = { tool: tool as 'pen' | 'eraser', points: [pos], color, width: lineWidth, page };
     setCurrentAnnotation(ann);
     setIsDrawing(true);
   };
 
   const draw = (e: React.MouseEvent) => {
-    if (!isDrawing || !currentAnnotation || !canvasRef.current) return;
-    const pos = getPos(e, canvasRef.current);
+    if (!isDrawing || !currentAnnotation || !annotCanvasRef.current) return;
+    const pos = getPos(e, annotCanvasRef.current);
     const updated = { ...currentAnnotation, points: [...currentAnnotation.points, pos] };
     setCurrentAnnotation(updated);
 
-    const ctx = canvasRef.current.getContext('2d')!;
+    const ctx = annotCanvasRef.current.getContext('2d')!;
     const pts = updated.points;
     if (pts.length >= 2) {
       ctx.beginPath();
@@ -122,15 +169,13 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
   };
 
   const clearAnnotations = () => {
-    setAnnotations([]);
-    const canvas = canvasRef.current;
+    setAnnotations(prev => prev.filter(a => a.page !== page));
+    const canvas = annotCanvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d')!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
   };
-
-  const fileUrl = material.file_url;
 
   return (
     <div className={cn(
@@ -139,57 +184,35 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
     )}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-white">
-            <span className="font-semibold text-sm truncate max-w-[200px]">{material.title}</span>
-            {canTeach && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/20 border border-green-500/30">
-                <div className="pulse-dot w-1.5 h-1.5" />
-                <span className="text-green-400 text-xs font-medium">{liveStudents} students live</span>
-              </div>
-            )}
-          </div>
-        </div>
+        <span className="font-semibold text-sm text-white truncate max-w-[200px]">{material.title}</span>
 
         {/* Page navigation */}
         {isPDF && (
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
-            >
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-white text-sm font-medium px-2">{page} / {totalPages}</span>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
-            >
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setZoom(z => Math.min(200, z + 10))}
-            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
-          >
+          <button onClick={() => setZoom(z => Math.min(200, z + 20))}
+            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
             <ZoomIn className="w-4 h-4" />
           </button>
           <span className="text-white text-xs w-10 text-center">{zoom}%</span>
-          <button
-            onClick={() => setZoom(z => Math.max(50, z - 10))}
-            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
-          >
+          <button onClick={() => setZoom(z => Math.max(50, z - 20))}
+            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
             <ZoomOut className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => setFullscreen(!fullscreen)}
-            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
-          >
+          <button onClick={() => setFullscreen(!fullscreen)}
+            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
             {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
           <button onClick={onClose} className="p-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
@@ -208,43 +231,30 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
               { t: 'pen' as Tool, icon: Pen, label: 'Pen' },
               { t: 'eraser' as Tool, icon: Eraser, label: 'Eraser' },
             ].map(({ t, icon: Icon, label }) => (
-              <button
-                key={t}
-                onClick={() => setTool(t)}
-                title={label}
-                className={cn(
-                  "p-2 rounded-xl transition-all",
+              <button key={t} onClick={() => setTool(t)} title={label}
+                className={cn("p-2 rounded-xl transition-all",
                   tool === t ? "bg-primary text-white" : "bg-white/10 text-white/60 hover:bg-white/20"
-                )}
-              >
+                )}>
                 <Icon className="w-4 h-4" />
               </button>
             ))}
 
             <div className="w-full h-px bg-white/10" />
 
-            {/* Colors */}
             <div className="space-y-1.5">
               {COLORS.slice(0, 4).map(c => (
-                <button
-                  key={c}
-                  onClick={() => { setColor(c); setTool('pen'); }}
+                <button key={c} onClick={() => { setColor(c); setTool('pen'); }}
                   className={cn("w-6 h-6 rounded-full border-2 transition-transform hover:scale-110", color === c ? "border-white" : "border-transparent")}
-                  style={{ background: c }}
-                />
+                  style={{ background: c }} />
               ))}
             </div>
 
             <div className="w-full h-px bg-white/10" />
 
-            {/* Line width */}
             <div className="space-y-1">
               {[2, 4, 7].map(w => (
-                <button
-                  key={w}
-                  onClick={() => setLineWidth(w)}
-                  className={cn("w-8 flex items-center justify-center py-1 rounded", lineWidth === w ? "bg-white/20" : "hover:bg-white/10")}
-                >
+                <button key={w} onClick={() => setLineWidth(w)}
+                  className={cn("w-8 flex items-center justify-center py-1 rounded", lineWidth === w ? "bg-white/20" : "hover:bg-white/10")}>
                   <div className="rounded-full bg-white" style={{ width: w + 4, height: w }} />
                 </button>
               ))}
@@ -259,65 +269,63 @@ const PDFViewerModal: React.FC<Props> = ({ material, onClose, canTeach, sessionI
         )}
 
         {/* Content Area */}
-        <div className="flex-1 overflow-auto bg-slate-700 relative flex items-center justify-center">
-          <div className="relative" style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}>
-            {fileUrl ? (
-              isPDF ? (
-                <iframe
-                  src={`https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`}
-                  className="w-[800px] h-[600px] bg-white"
-                  title={material.title}
-                />
-              ) : isImage ? (
-                <img src={fileUrl} alt={material.title} className="max-w-4xl max-h-[80vh] object-contain" />
-              ) : (
-                <div className="w-[800px] h-[600px] bg-white flex flex-col items-center justify-center gap-4">
-                  <div className="text-6xl">📄</div>
-                  <p className="text-gray-600 font-medium">{material.title}</p>
-                  <a
-                    href={fileUrl}
-                    download
-                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl font-medium text-sm"
-                  >
-                    <Download className="w-4 h-4" /> Download File
+        <div className="flex-1 overflow-auto bg-slate-700 relative flex items-center justify-center p-4">
+          {isPDF ? (
+            pdfLoading ? (
+              <div className="flex flex-col items-center gap-4 text-white">
+                <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm">Loading PDF...</p>
+              </div>
+            ) : pdfError ? (
+              <div className="text-center text-white">
+                <p className="text-red-400 mb-4">Failed to load PDF: {pdfError}</p>
+                {fileUrl && (
+                  <a href={fileUrl} download className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl font-medium text-sm mx-auto">
+                    <Download className="w-4 h-4" /> Download Instead
                   </a>
-                </div>
-              )
-            ) : (
-              <div className="w-[800px] h-[600px] bg-white flex flex-col items-center justify-center gap-4">
-                <div className="text-6xl">📋</div>
-                <p className="text-2xl font-bold text-gray-800">{material.title}</p>
-                <p className="text-gray-500 capitalize">{material.type.replace('_', ' ')}</p>
-                {!canTeach && (
-                  <div className="flex items-center gap-2 text-green-600 bg-green-50 px-4 py-2 rounded-xl border border-green-200">
-                    <Users className="w-4 h-4" />
-                    <span className="text-sm font-medium">Live session — synced with teacher</span>
-                  </div>
                 )}
               </div>
-            )}
-
-            {/* Drawing Canvas */}
-            <canvas
-              ref={canvasRef}
-              className={cn(
-                "absolute inset-0 w-full h-full",
-                canTeach && tool !== 'pointer' ? "cursor-crosshair" : "cursor-default",
-                !canTeach ? "pointer-events-none" : ""
-              )}
-              onMouseDown={startDraw}
-              onMouseMove={draw}
-              onMouseUp={stopDraw}
-              onMouseLeave={stopDraw}
-            />
-          </div>
+            ) : (
+              <div className="relative inline-block">
+                <canvas ref={pdfCanvasRef} className="max-w-full max-h-full shadow-xl rounded" style={{ display: 'block' }} />
+                <canvas
+                  ref={annotCanvasRef}
+                  className={cn("absolute inset-0 w-full h-full",
+                    canTeach && tool !== 'pointer' ? "cursor-crosshair" : "cursor-default",
+                    !canTeach ? "pointer-events-none" : ""
+                  )}
+                  style={{ width: '100%', height: '100%' }}
+                  onMouseDown={startDraw}
+                  onMouseMove={draw}
+                  onMouseUp={stopDraw}
+                  onMouseLeave={stopDraw}
+                />
+              </div>
+            )
+          ) : isImage && fileUrl ? (
+            <img src={fileUrl} alt={material.title} className="max-w-4xl max-h-[80vh] object-contain" />
+          ) : fileUrl ? (
+            <div className="w-[800px] h-[600px] bg-white flex flex-col items-center justify-center gap-4 rounded-xl">
+              <div className="text-6xl">📄</div>
+              <p className="text-gray-600 font-medium">{material.title}</p>
+              <a href={fileUrl} download className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl font-medium text-sm">
+                <Download className="w-4 h-4" /> Download File
+              </a>
+            </div>
+          ) : (
+            <div className="w-[800px] h-[600px] bg-white flex flex-col items-center justify-center gap-4 rounded-xl">
+              <div className="text-6xl">📋</div>
+              <p className="text-2xl font-bold text-gray-800">{material.title}</p>
+              <p className="text-gray-500 capitalize">{material.type.replace('_', ' ')}</p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Footer */}
       <div className="px-4 py-2 bg-slate-900 border-t border-white/10 flex items-center justify-between flex-shrink-0">
         <p className="text-white/50 text-xs">
-          {canTeach ? '🎓 Teacher Mode — Smart Board Active' : '📖 Student Mode — Live Sync Active'}
+          {canTeach ? '🎓 Teacher Mode — Annotations Active' : '📖 Viewing Mode'}
         </p>
         {fileUrl && (
           <a href={fileUrl} download className="flex items-center gap-1.5 text-blue-400 text-xs hover:text-blue-300 transition-colors">
