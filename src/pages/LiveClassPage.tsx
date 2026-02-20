@@ -2,35 +2,38 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   PlayCircle, StopCircle, Users, Video, BookOpen, Clock, Wifi,
   ChevronLeft, ChevronRight, Pen, Eraser, MousePointer, Trash2,
-  Maximize2, Minimize2, ZoomIn, ZoomOut, Hand, Highlighter,
-  MessageSquare, Award, PauseCircle, SkipForward, Volume2,
-  BarChart3, ThumbsUp, HelpCircle, AlertCircle
+  Maximize2, Minimize2, ZoomIn, ZoomOut, Highlighter,
+  MessageSquare, Award, BarChart3, FileText
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import * as pdfjsLib from 'pdfjs-dist';
 
-type Tool = 'pointer' | 'pen' | 'eraser' | 'highlighter' | 'laser';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+type Tool = 'pointer' | 'pen' | 'eraser' | 'highlighter';
 const COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#000000'];
 
 interface Annotation {
-  tool: 'pen' | 'eraser' | 'highlighter' | 'laser';
+  tool: 'pen' | 'eraser' | 'highlighter';
   points: { x: number; y: number }[];
   color: string;
   width: number;
 }
 
-const DEMO_SLIDES = [
-  { title: 'Introduction to Polynomials', content: 'A polynomial is an expression consisting of variables (also called indeterminates) and coefficients. Example: 3x² + 2x - 5', bg: 'from-blue-500 to-indigo-600' },
-  { title: 'Types of Polynomials', content: 'Monomial: 5x | Binomial: 3x + 2 | Trinomial: x² + 2x + 1 | Polynomial: Multiple terms', bg: 'from-emerald-500 to-teal-600' },
-  { title: 'Degree of a Polynomial', content: 'The degree is the highest power of the variable. Example: 4x³ + 2x - 7 → Degree = 3', bg: 'from-amber-500 to-orange-600' },
-  { title: 'Addition of Polynomials', content: 'Add like terms: (3x² + 2x) + (x² - x + 5) = 4x² + x + 5', bg: 'from-purple-500 to-violet-600' },
-  { title: 'Factorization', content: 'x² - 5x + 6 = (x - 2)(x - 3). Factor by splitting the middle term!', bg: 'from-pink-500 to-rose-600' },
-];
+interface MaterialItem {
+  id: string;
+  title: string;
+  file_url?: string;
+  file_type?: string;
+  type: string;
+}
 
 const LiveClassPage = () => {
   const { profile } = useAuth();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+  const annotCanvasRef = useRef<HTMLCanvasElement>(null);
   const [activeSession, setActiveSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -42,9 +45,7 @@ const LiveClassPage = () => {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null);
-  const [currentSlide, setCurrentSlide] = useState(0);
   const [zoom, setZoom] = useState(100);
-  const [studentCount] = useState(Math.floor(Math.random() * 22) + 5);
   const [reactions, setReactions] = useState<{type: string; id: number}[]>([]);
   const [poll, setPoll] = useState<{question: string; options: string[]; votes: number[]} | null>(null);
   const [showPollCreate, setShowPollCreate] = useState(false);
@@ -54,12 +55,27 @@ const LiveClassPage = () => {
   const [chatMessages, setChatMessages] = useState<{text: string; sender: string; time: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [showChat, setShowChat] = useState(false);
-  const [showStudentPanel, setShowStudentPanel] = useState(false);
+
+  // PDF state
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // Materials selection
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [selectedMaterial, setSelectedMaterial] = useState<MaterialItem | null>(null);
+  const [showMaterialPicker, setShowMaterialPicker] = useState(false);
+
+  // Real student count
+  const [studentCount, setStudentCount] = useState(0);
 
   const isTeacher = profile?.role === 'teacher' || profile?.role === 'admin' || profile?.role === 'super_admin';
 
   useEffect(() => {
     fetchActiveSessions();
+    fetchMaterials();
+    fetchStudentCount();
     const channel = supabase
       .channel('live-sessions-rt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'live_sessions' }, () => fetchActiveSessions())
@@ -78,14 +94,31 @@ const LiveClassPage = () => {
     setLoading(false);
   };
 
+  const fetchMaterials = async () => {
+    const { data } = await supabase
+      .from('materials')
+      .select('id, title, file_url, file_type, type')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+    setMaterials(data || []);
+  };
+
+  const fetchStudentCount = async () => {
+    const { count } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('role', 'student');
+    setStudentCount(count ?? 0);
+  };
+
   const startClass = async () => {
     setStarting(true);
     const { data, error } = await supabase.from('live_sessions').insert({
       teacher_id: profile!.user_id,
-      title: 'Mathematics - Chapter 2: Polynomials',
+      title: 'Live Class Session',
       status: 'active',
       started_at: new Date().toISOString(),
-      current_page: 0,
+      current_page: 1,
     }).select().single();
     if (!error && data) { setActiveSession(data); setSmartBoardOpen(true); }
     setStarting(false);
@@ -96,27 +129,52 @@ const LiveClassPage = () => {
     await supabase.from('live_sessions').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', activeSession.id);
     setActiveSession(null);
     setSmartBoardOpen(false);
+    setPdfDoc(null);
+    setSelectedMaterial(null);
   };
 
-  const changeSlide = async (idx: number) => {
-    setCurrentSlide(idx);
-    setAnnotations([]);
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d')!;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-    if (activeSession) {
-      await supabase.from('live_sessions').update({ current_page: idx }).eq('id', activeSession.id);
-    }
-  };
+  // Load PDF when material selected
+  useEffect(() => {
+    if (!selectedMaterial?.file_url) return;
+    const isPDF = selectedMaterial.file_type?.includes('pdf') || selectedMaterial.file_url?.endsWith('.pdf');
+    if (!isPDF) return;
 
-  // Drawing
-  const drawAllAnnotations = useCallback((canvas: HTMLCanvasElement, anns: Annotation[]) => {
+    setPdfLoading(true);
+    pdfjsLib.getDocument({ url: selectedMaterial.file_url }).promise.then(doc => {
+      setPdfDoc(doc);
+      setTotalPages(doc.numPages);
+      setCurrentPage(1);
+      setPdfLoading(false);
+    }).catch(() => setPdfLoading(false));
+  }, [selectedMaterial]);
+
+  // Render PDF page
+  useEffect(() => {
+    if (!pdfDoc || !pdfCanvasRef.current) return;
+    const render = async () => {
+      const page = await pdfDoc.getPage(currentPage);
+      const scale = (zoom / 100) * 1.5;
+      const viewport = page.getViewport({ scale });
+      const canvas = pdfCanvasRef.current!;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+      if (annotCanvasRef.current) {
+        annotCanvasRef.current.width = viewport.width;
+        annotCanvasRef.current.height = viewport.height;
+        drawAllAnnotations();
+      }
+    };
+    render();
+  }, [pdfDoc, currentPage, zoom]);
+
+  const drawAllAnnotations = useCallback(() => {
+    const canvas = annotCanvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    anns.forEach(ann => {
+    annotations.forEach(ann => {
       if (ann.points.length < 2) return;
       ctx.beginPath();
       if (ann.tool === 'eraser') {
@@ -140,36 +198,31 @@ const LiveClassPage = () => {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     });
-  }, []);
+  }, [annotations]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    drawAllAnnotations(canvas, annotations);
-  }, [annotations, drawAllAnnotations]);
+  useEffect(() => { drawAllAnnotations(); }, [drawAllAnnotations]);
 
   const getPos = (e: React.MouseEvent, canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
   };
 
   const startDraw = (e: React.MouseEvent) => {
-    if (tool === 'pointer' || !isTeacher) return;
-    const canvas = canvasRef.current!;
-    const pos = getPos(e, canvas);
+    if (tool === 'pointer' || !isTeacher || !annotCanvasRef.current) return;
+    const pos = getPos(e, annotCanvasRef.current);
     const ann: Annotation = { tool: tool as Annotation['tool'], points: [pos], color, width: lineWidth };
     setCurrentAnnotation(ann);
     setIsDrawing(true);
   };
 
   const draw = (e: React.MouseEvent) => {
-    if (!isDrawing || !currentAnnotation || !canvasRef.current) return;
-    const pos = getPos(e, canvasRef.current);
+    if (!isDrawing || !currentAnnotation || !annotCanvasRef.current) return;
+    const pos = getPos(e, annotCanvasRef.current);
     const updated = { ...currentAnnotation, points: [...currentAnnotation.points, pos] };
     setCurrentAnnotation(updated);
-    const ctx = canvasRef.current.getContext('2d')!;
+    const ctx = annotCanvasRef.current.getContext('2d')!;
     const pts = updated.points;
     if (pts.length >= 2) {
       ctx.beginPath();
@@ -196,8 +249,18 @@ const LiveClassPage = () => {
 
   const clearCanvas = () => {
     setAnnotations([]);
-    const canvas = canvasRef.current;
-    if (canvas) { const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, canvas.width, canvas.height); }
+    if (annotCanvasRef.current) {
+      const ctx = annotCanvasRef.current.getContext('2d')!;
+      ctx.clearRect(0, 0, annotCanvasRef.current.width, annotCanvasRef.current.height);
+    }
+  };
+
+  const changePage = async (p: number) => {
+    setCurrentPage(p);
+    setAnnotations([]);
+    if (activeSession) {
+      await supabase.from('live_sessions').update({ current_page: p }).eq('id', activeSession.id);
+    }
   };
 
   const addReaction = (type: string) => {
@@ -238,7 +301,9 @@ const LiveClassPage = () => {
 
   // Smart Board View
   if (smartBoardOpen && activeSession) {
-    const slide = DEMO_SLIDES[currentSlide];
+    const hasPDF = !!pdfDoc;
+    const isImage = selectedMaterial?.file_type?.startsWith('image/');
+
     return (
       <div className={cn('fixed z-50 bg-slate-950 flex flex-col', fullscreen ? 'inset-0' : 'inset-2 rounded-2xl overflow-hidden')}>
         {/* Top Bar */}
@@ -248,37 +313,43 @@ const LiveClassPage = () => {
               <div className="pulse-dot w-1.5 h-1.5" />
               <span className="text-red-400 text-xs font-bold">LIVE</span>
             </div>
-            <span className="text-white font-semibold text-sm hidden sm:block">{activeSession.title}</span>
+            <span className="text-white font-semibold text-sm hidden sm:block truncate max-w-[200px]">
+              {selectedMaterial?.title || activeSession.title}
+            </span>
           </div>
 
-          {/* Slide Navigation */}
-          <div className="flex items-center gap-2">
-            <button onClick={() => changeSlide(Math.max(0, currentSlide - 1))} disabled={currentSlide === 0}
-              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-white text-sm font-medium px-2">Slide {currentSlide + 1}/{DEMO_SLIDES.length}</span>
-            <button onClick={() => changeSlide(Math.min(DEMO_SLIDES.length - 1, currentSlide + 1))} disabled={currentSlide >= DEMO_SLIDES.length - 1}
-              className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Page Navigation */}
+          {hasPDF && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => changePage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}
+                className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-white text-sm font-medium px-2">{currentPage}/{totalPages}</span>
+              <button onClick={() => changePage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages}
+                className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-full">
               <Users className="w-3.5 h-3.5 text-white" />
               <span className="text-white text-xs font-semibold">{studentCount}</span>
             </div>
+            {isTeacher && (
+              <button onClick={() => setShowMaterialPicker(true)} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors" title="Select Material">
+                <FileText className="w-4 h-4" />
+              </button>
+            )}
             <button onClick={() => setShowChat(!showChat)} className={cn('p-1.5 rounded-lg transition-colors', showChat ? 'bg-primary text-white' : 'bg-white/10 text-white hover:bg-white/20')}>
               <MessageSquare className="w-4 h-4" />
             </button>
-            <button onClick={() => setShowStudentPanel(!showStudentPanel)} className={cn('p-1.5 rounded-lg transition-colors', showStudentPanel ? 'bg-primary text-white' : 'bg-white/10 text-white hover:bg-white/20')}>
-              <Users className="w-4 h-4" />
-            </button>
-            <button onClick={() => setZoom(z => Math.min(150, z + 10))} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
+            <button onClick={() => setZoom(z => Math.min(200, z + 20))} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
               <ZoomIn className="w-4 h-4" />
             </button>
-            <button onClick={() => setZoom(z => Math.max(60, z - 10))} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
+            <button onClick={() => setZoom(z => Math.max(50, z - 20))} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
               <ZoomOut className="w-4 h-4" />
             </button>
             <button onClick={() => setFullscreen(!fullscreen)} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
@@ -304,7 +375,6 @@ const LiveClassPage = () => {
                 { t: 'pen', icon: Pen, tip: 'Pen' },
                 { t: 'highlighter', icon: Highlighter, tip: 'Highlighter' },
                 { t: 'eraser', icon: Eraser, tip: 'Eraser' },
-                { t: 'laser', icon: Hand, tip: 'Laser Pointer' },
               ] as const).map(({ t, icon: Icon, tip }) => (
                 <button key={t} onClick={() => setTool(t)} title={tip}
                   className={cn('p-2 rounded-lg transition-all', tool === t ? 'bg-primary text-white' : 'bg-white/10 text-white/60 hover:bg-white/20')}>
@@ -336,7 +406,7 @@ const LiveClassPage = () => {
           )}
 
           {/* Main Content */}
-          <div className="flex-1 overflow-auto bg-slate-700 relative flex items-center justify-center">
+          <div className="flex-1 overflow-auto bg-slate-700 relative flex items-center justify-center p-4">
             {/* Floating Reactions */}
             {reactions.map(r => (
               <div key={r.id} className="absolute bottom-20 animate-bounce text-3xl pointer-events-none z-20"
@@ -345,32 +415,49 @@ const LiveClassPage = () => {
               </div>
             ))}
 
-            <div className="relative" style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}>
-              {/* Slide */}
-              <div className={`w-[800px] h-[500px] bg-gradient-to-br ${slide.bg} flex flex-col items-center justify-center p-12 rounded-xl relative select-none`}>
-                <h2 className="text-4xl font-bold text-white text-center mb-6" style={{fontFamily:'Poppins,sans-serif'}}>{slide.title}</h2>
-                <p className="text-white/90 text-lg text-center leading-relaxed">{slide.content}</p>
-                <div className="absolute bottom-4 right-4 flex gap-2">
-                  {DEMO_SLIDES.map((_, i) => (
-                    <button key={i} onClick={() => isTeacher && changeSlide(i)}
-                      className={cn('w-2 h-2 rounded-full transition-all', i === currentSlide ? 'bg-white' : 'bg-white/40')} />
-                  ))}
-                </div>
-              </div>
-
-              {/* Canvas */}
-              <canvas
-                ref={canvasRef}
-                className={cn('absolute inset-0 w-full h-full rounded-xl',
-                  isTeacher && tool !== 'pointer' ? 'cursor-crosshair' : tool === 'pointer' ? 'cursor-default' : 'cursor-default',
-                  !isTeacher ? 'pointer-events-none' : ''
+            {!selectedMaterial ? (
+              <div className="text-center text-white/60">
+                <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <p className="text-lg font-medium mb-2">No material selected</p>
+                {isTeacher ? (
+                  <button onClick={() => setShowMaterialPicker(true)}
+                    className="px-6 py-3 rounded-xl bg-primary text-white font-semibold hover:opacity-90 transition-all">
+                    Select a Document
+                  </button>
+                ) : (
+                  <p className="text-sm">Waiting for teacher to load content...</p>
                 )}
-                onMouseDown={startDraw}
-                onMouseMove={draw}
-                onMouseUp={stopDraw}
-                onMouseLeave={stopDraw}
-              />
-            </div>
+              </div>
+            ) : pdfLoading ? (
+              <div className="flex flex-col items-center gap-4 text-white">
+                <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm">Loading document...</p>
+              </div>
+            ) : hasPDF ? (
+              <div className="relative inline-block">
+                <canvas ref={pdfCanvasRef} className="shadow-xl rounded" style={{ display: 'block', maxWidth: '100%', maxHeight: '100%' }} />
+                <canvas
+                  ref={annotCanvasRef}
+                  className={cn('absolute inset-0 w-full h-full rounded',
+                    isTeacher && tool !== 'pointer' ? 'cursor-crosshair' : 'cursor-default',
+                    !isTeacher ? 'pointer-events-none' : ''
+                  )}
+                  style={{ width: '100%', height: '100%' }}
+                  onMouseDown={startDraw}
+                  onMouseMove={draw}
+                  onMouseUp={stopDraw}
+                  onMouseLeave={stopDraw}
+                />
+              </div>
+            ) : isImage ? (
+              <img src={selectedMaterial.file_url} alt={selectedMaterial.title} className="max-h-[80vh] object-contain rounded shadow-xl" />
+            ) : (
+              <div className="bg-white rounded-xl p-12 text-center">
+                <div className="text-6xl mb-4">📄</div>
+                <p className="text-xl font-bold text-gray-800">{selectedMaterial.title}</p>
+                <p className="text-gray-500 mt-2">{selectedMaterial.type}</p>
+              </div>
+            )}
 
             {/* Active Poll Display */}
             {poll && (
@@ -399,6 +486,36 @@ const LiveClassPage = () => {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Material Picker Modal */}
+            {showMaterialPicker && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-30">
+                <div className="bg-slate-800 rounded-2xl border border-white/20 p-6 w-96 max-h-[70vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold">Select Material</h3>
+                    <button onClick={() => setShowMaterialPicker(false)} className="text-white/40 hover:text-white">✕</button>
+                  </div>
+                  {materials.length === 0 ? (
+                    <p className="text-white/50 text-sm text-center py-4">No materials uploaded yet. Upload content in Classes page first.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {materials.map(m => (
+                        <button key={m.id} onClick={() => { setSelectedMaterial(m); setShowMaterialPicker(false); setAnnotations([]); setCurrentPage(1); setPdfDoc(null); }}
+                          className="w-full text-left p-3 rounded-xl border border-white/10 hover:border-white/30 transition-all flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                            <FileText className="w-4 h-4 text-white/60" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-white text-sm font-medium truncate">{m.title}</p>
+                            <p className="text-white/40 text-xs capitalize">{m.type.replace('_', ' ')}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -431,26 +548,6 @@ const LiveClassPage = () => {
                 <button onClick={sendChatMessage} className="p-2 rounded-lg bg-primary text-white">
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
-              </div>
-            </div>
-          )}
-
-          {/* Students Panel */}
-          {showStudentPanel && (
-            <div className="w-52 bg-slate-800 border-l border-white/10 flex flex-col flex-shrink-0">
-              <div className="p-3 border-b border-white/10">
-                <p className="text-white text-sm font-semibold">{studentCount} Students</p>
-              </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {Array.from({ length: studentCount }, (_, i) => (
-                  <div key={i} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5">
-                    <div className="w-6 h-6 rounded-full bg-gradient-amber flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                      {String.fromCharCode(65 + (i % 26))}
-                    </div>
-                    <span className="text-white/80 text-xs truncate">Student {i + 1}</span>
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 ml-auto flex-shrink-0" />
-                  </div>
-                ))}
               </div>
             </div>
           )}
@@ -522,7 +619,7 @@ const LiveClassPage = () => {
               </div>
               <div className="flex items-center gap-2 bg-white/20 px-3 py-1.5 rounded-full">
                 <Users className="w-4 h-4" />
-                <span className="font-semibold">{studentCount} attending</span>
+                <span className="font-semibold">{studentCount} students</span>
               </div>
             </div>
           </div>
@@ -562,12 +659,12 @@ const LiveClassPage = () => {
       {/* Features Grid */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {[
-          { icon: Wifi, label: 'Real-time Sync', desc: 'Slide & annotation changes sync instantly', color: 'bg-gradient-blue' },
-          { icon: BookOpen, label: 'Smart Board', desc: 'Pen, highlighter, pointer & eraser tools', color: 'bg-gradient-purple' },
+          { icon: Wifi, label: 'Real-time Sync', desc: 'Content syncs instantly to all students', color: 'bg-gradient-blue' },
+          { icon: BookOpen, label: 'Smart Board', desc: 'Pen, highlighter & eraser tools', color: 'bg-gradient-purple' },
           { icon: Users, label: 'Live Reactions', desc: 'Students react with emojis in real-time', color: 'bg-gradient-green' },
           { icon: BarChart3, label: 'Live Polls', desc: 'Create instant polls to check understanding', color: 'bg-gradient-amber' },
-          { icon: MessageSquare, label: 'Class Chat', desc: 'Real-time chat between teacher & students', color: 'bg-gradient-red' },
-          { icon: Award, label: 'Slide Navigation', desc: 'Navigate slides during live class', color: 'bg-gradient-blue' },
+          { icon: MessageSquare, label: 'Class Chat', desc: 'Real-time chat during class', color: 'bg-gradient-red' },
+          { icon: Award, label: 'PDF Navigation', desc: 'Navigate multi-page PDFs during live class', color: 'bg-gradient-blue' },
         ].map((f) => (
           <div key={f.label} className="stat-card flex items-start gap-4">
             <div className={`w-10 h-10 rounded-xl ${f.color} flex items-center justify-center flex-shrink-0`}>
