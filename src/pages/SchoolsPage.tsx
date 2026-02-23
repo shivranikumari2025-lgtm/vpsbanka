@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { School, Plus, BookOpen, Users, BarChart3, X, GraduationCap, FileText } from 'lucide-react';
 
 interface SchoolStats {
@@ -17,36 +17,34 @@ const SchoolsPage = () => {
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
   const fetchData = async () => {
-    setLoading(true);
-    const [clsRes, subRes, teachRes, studRes, matRes, recentMat] = await Promise.all([
-      supabase.from('classes').select('*', { count: 'exact', head: false }).eq('is_active', true),
-      supabase.from('subjects').select('*', { count: 'exact', head: true }),
-      supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'teacher'),
-      supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student'),
-      supabase.from('materials').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('materials').select('title, type, created_at').order('created_at', { ascending: false }).limit(5),
-    ]);
+    try {
+      setLoading(true);
+      const [clsRes, teachRes, studRes] = await Promise.all([
+        apiClient.getClasses(),
+        apiClient.getUsersByRole('teacher'),
+        apiClient.getUsersByRole('student'),
+      ]);
 
-    setStats({
-      classes: clsRes.count ?? 0,
-      subjects: subRes.count ?? 0,
-      teachers: teachRes.count ?? 0,
-      students: studRes.count ?? 0,
-      materials: matRes.count ?? 0,
-    });
-    setClasses(clsRes.data || []);
-    setRecentActivity(recentMat.data || []);
-    setLoading(false);
+      setStats({
+        classes: clsRes.classes?.length ?? 0,
+        subjects: 0,
+        teachers: teachRes.users?.length ?? 0,
+        students: studRes.users?.length ?? 0,
+        materials: 0,
+      });
+      setClasses(clsRes.classes || []);
+      setRecentActivity([]);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchData();
-    const channel = supabase
-      .channel('schools-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'classes' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchData)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) return (

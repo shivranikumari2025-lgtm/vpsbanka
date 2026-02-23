@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Settings, User, Bell, Shield, Palette, Globe, Save, Lock } from 'lucide-react';
 
 const SettingsPage = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState({ email: true, liveClass: true, exams: true, assignments: false });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -16,7 +16,7 @@ const SettingsPage = () => {
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const isDemo = profile?.is_demo;
+  const isDemo = user?.is_demo;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -36,17 +36,17 @@ const SettingsPage = () => {
 
         <div className="flex items-center gap-4 mb-6 p-4 rounded-xl bg-muted/30">
           <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl ${
-            profile?.role === 'super_admin' ? 'bg-gradient-purple' :
-            profile?.role === 'admin' ? 'bg-gradient-blue' :
-            profile?.role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
+            user?.role === 'super_admin' ? 'bg-gradient-purple' :
+            user?.role === 'admin' ? 'bg-gradient-blue' :
+            user?.role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
           }`}>
-            {profile?.full_name?.[0]?.toUpperCase()}
+            {user?.full_name?.[0]?.toUpperCase()}
           </div>
           <div>
-            <p className="font-bold text-lg">{profile?.full_name}</p>
-            <p className="text-muted-foreground text-sm">{profile?.email}</p>
+            <p className="font-bold text-lg">{user?.full_name}</p>
+            <p className="text-muted-foreground text-sm">{user?.email}</p>
             <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-              {profile?.role?.replace('_', ' ')}
+              {user?.role?.replace('_', ' ')}
             </span>
           </div>
         </div>
@@ -55,7 +55,7 @@ const SettingsPage = () => {
           <div>
             <label className="text-sm font-semibold mb-1.5 block">Full Name</label>
             <input
-              defaultValue={profile?.full_name}
+              defaultValue={user?.full_name}
               disabled={isDemo}
               className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             />
@@ -63,7 +63,7 @@ const SettingsPage = () => {
           <div>
             <label className="text-sm font-semibold mb-1.5 block">Email</label>
             <input
-              defaultValue={profile?.email}
+              defaultValue={user?.email}
               disabled
               className="w-full px-4 py-2.5 rounded-xl border border-border bg-muted text-muted-foreground text-sm cursor-not-allowed"
             />
@@ -146,7 +146,7 @@ const SettingsPage = () => {
       </div>
 
       {/* System Info (Super Admin) */}
-      {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+      {(user?.role === 'super_admin' || user?.role === 'admin') && (
         <div className="bg-card rounded-2xl border border-border shadow-card p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-8 h-8 rounded-xl bg-gradient-purple flex items-center justify-center">

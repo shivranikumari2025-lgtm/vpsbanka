@@ -5,7 +5,7 @@ import {
   Maximize2, Minimize2, ZoomIn, ZoomOut, Highlighter,
   MessageSquare, Award, BarChart3, FileText
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -31,7 +31,7 @@ interface MaterialItem {
 }
 
 const LiveClassPage = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const annotCanvasRef = useRef<HTMLCanvasElement>(null);
   const [activeSession, setActiveSession] = useState<any>(null);
@@ -70,67 +70,80 @@ const LiveClassPage = () => {
   // Real student count
   const [studentCount, setStudentCount] = useState(0);
 
-  const isTeacher = profile?.role === 'teacher' || profile?.role === 'admin' || profile?.role === 'super_admin';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'super_admin';
 
   useEffect(() => {
     fetchActiveSessions();
     fetchMaterials();
     fetchStudentCount();
-    const channel = supabase
-      .channel('live-sessions-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_sessions' }, () => fetchActiveSessions())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const interval = setInterval(fetchActiveSessions, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchActiveSessions = async () => {
-    const { data } = await supabase
-      .from('live_sessions')
-      .select('*')
-      .in('status', ['waiting', 'active'])
-      .order('created_at', { ascending: false })
-      .limit(1);
-    setActiveSession(data?.[0] || null);
-    setLoading(false);
+    try {
+      // Mock: fetch live sessions from API
+      // const { sessions } = await apiClient.request('/live-sessions');
+      // setActiveSession(sessions?.[0] || null);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+      setLoading(false);
+    }
   };
 
   const fetchMaterials = async () => {
-    const { data } = await supabase
-      .from('materials')
-      .select('id, title, file_url, file_type, type')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-    setMaterials(data || []);
+    try {
+      const { materials: data } = await apiClient.request('/materials');
+      setMaterials(data || []);
+    } catch (error) {
+      console.error('Error fetching materials:', error);
+    }
   };
 
   const fetchStudentCount = async () => {
-    const { count } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('role', 'student');
-    setStudentCount(count ?? 0);
+    try {
+      const { users } = await apiClient.getUsersByRole('student');
+      setStudentCount(users?.length ?? 0);
+    } catch (error) {
+      console.error('Error fetching student count:', error);
+    }
   };
 
   const startClass = async () => {
     setStarting(true);
-    const { data, error } = await supabase.from('live_sessions').insert({
-      teacher_id: profile!.user_id,
-      title: 'Live Class Session',
-      status: 'active',
-      started_at: new Date().toISOString(),
-      current_page: 1,
-    }).select().single();
-    if (!error && data) { setActiveSession(data); setSmartBoardOpen(true); }
-    setStarting(false);
+    try {
+      // Mock: start live session
+      // const result = await apiClient.request('/live-sessions', {
+      //   method: 'POST',
+      //   body: JSON.stringify({ title: 'Live Class Session', status: 'active' })
+      // });
+      // setActiveSession(result.session);
+      // For now, just open the smartboard with mock data
+      setActiveSession({ id: 'mock-' + Date.now(), title: 'Live Class Session' });
+      setSmartBoardOpen(true);
+    } catch (error) {
+      console.error('Error starting class:', error);
+    } finally {
+      setStarting(false);
+    }
   };
 
   const endClass = async () => {
     if (!activeSession) return;
-    await supabase.from('live_sessions').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', activeSession.id);
-    setActiveSession(null);
-    setSmartBoardOpen(false);
-    setPdfDoc(null);
-    setSelectedMaterial(null);
+    try {
+      // Mock: end live session
+      // await apiClient.request(`/live-sessions/${activeSession.id}`, {
+      //   method: 'PUT',
+      //   body: JSON.stringify({ status: 'ended' })
+      // });
+      setActiveSession(null);
+      setSmartBoardOpen(false);
+      setPdfDoc(null);
+      setSelectedMaterial(null);
+    } catch (error) {
+      console.error('Error ending class:', error);
+    }
   };
 
   // Load PDF when material selected
@@ -259,7 +272,15 @@ const LiveClassPage = () => {
     setCurrentPage(p);
     setAnnotations([]);
     if (activeSession) {
-      await supabase.from('live_sessions').update({ current_page: p }).eq('id', activeSession.id);
+      try {
+        // Mock: update page in live session
+        // await apiClient.request(`/live-sessions/${activeSession.id}`, {
+        //   method: 'PUT',
+        //   body: JSON.stringify({ currentPage: p })
+        // });
+      } catch (error) {
+        console.error('Error updating page:', error);
+      }
     }
   };
 
@@ -273,7 +294,7 @@ const LiveClassPage = () => {
     if (!chatInput.trim()) return;
     setChatMessages(prev => [...prev, {
       text: chatInput,
-      sender: profile?.full_name || 'User',
+      sender: user?.full_name || 'User',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }]);
     setChatInput('');

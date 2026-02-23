@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BookOpen, Lock, Eye, EyeOff, GraduationCap, Shield, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { seedDemoUsers } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 const DEMO_CREDS = [
@@ -46,19 +45,9 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [seeding, setSeeding] = useState(false);
-  const [seedDone, setSeedDone] = useState(false);
   const [showCreds, setShowCreds] = useState(true);
-
-  useEffect(() => {
-    const seed = async () => {
-      setSeeding(true);
-      await seedDemoUsers();
-      setSeeding(false);
-      setSeedDone(true);
-    };
-    seed();
-  }, []);
+  const [seeding, setSeeding] = useState(false);
+  const [seedDone, setSeedDone] = useState(true);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

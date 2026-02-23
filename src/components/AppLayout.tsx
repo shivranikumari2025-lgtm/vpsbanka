@@ -63,12 +63,12 @@ interface AppLayoutProps {
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { profile, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const role = profile?.role ?? 'student';
+  const role = user?.role ?? 'student';
   const menuItems = ROLE_MENUS[role] || ROLE_MENUS.student;
   const roleColor = ROLE_COLORS[role] || ROLE_COLORS.student;
   const roleLabel = ROLE_LABELS[role] || 'Student';
@@ -106,7 +106,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               </span>
             </div>
             <div className="min-w-0">
-              <p className="text-white font-semibold text-sm truncate">{profile?.full_name}</p>
+              <p className="text-white font-semibold text-sm truncate">{user?.full_name}</p>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white">
                 {roleLabel}
               </span>
@@ -201,11 +201,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-full bg-gradient-hero flex items-center justify-center">
                 <span className="text-white text-sm font-bold">
-                  {profile?.full_name?.[0] || 'U'}
+                  {user?.full_name?.[0] || 'U'}
                 </span>
               </div>
               <div className="hidden sm:block">
-                <p className="text-sm font-semibold leading-none">{profile?.full_name}</p>
+                <p className="text-sm font-semibold leading-none">{user?.full_name}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{roleLabel}</p>
               </div>
             </div>

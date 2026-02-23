@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { BarChart3, BookOpen, Users, FileText, TrendingUp, PlayCircle, ClipboardList, Star, Clock, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { Link } from 'react-router-dom';
@@ -181,7 +181,7 @@ const StudentDashboard: React.FC<{ stats: Stats; activeSession: any }> = ({ stat
 );
 
 const Dashboard = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [stats, setStats] = useState<Stats>({ classes: 0, subjects: 0, chapters: 0, materials: 0, teachers: 0, students: 0, exams: 0, liveSessions: 0 });
   const [loading, setLoading] = useState(true);
   const [subjectData, setSubjectData] = useState<any[]>([]);
@@ -190,46 +190,52 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchAll = async () => {
-      const [cls, sub, chp, mat, teach, stud, exams, sessions, recentMat, activeS] = await Promise.all([
-        supabase.from('classes').select('*', { count: 'exact', head: true }),
-        supabase.from('subjects').select('id, name'),
-        supabase.from('chapters').select('*', { count: 'exact', head: true }),
-        supabase.from('materials').select('*', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'teacher'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student'),
-        supabase.from('exams').select('*', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('live_sessions').select('*', { count: 'exact', head: true }),
-        supabase.from('materials').select('title, type, created_at').eq('is_active', true).order('created_at', { ascending: false }).limit(5),
-        supabase.from('live_sessions').select('*').in('status', ['waiting', 'active']).limit(1),
-      ]);
+      try {
+        const [cls, teach, stud, exams] = await Promise.all([
+          apiClient.getClasses(),
+          apiClient.getUsersByRole('teacher'),
+          apiClient.getUsersByRole('student'),
+          apiClient.getExams(),
+        ]);
 
-      setStats({
-        classes: cls.count ?? 0,
-        subjects: sub.data?.length ?? 0,
-        chapters: chp.count ?? 0,
-        materials: mat.count ?? 0,
-        teachers: teach.count ?? 0,
-        students: stud.count ?? 0,
-        exams: exams.count ?? 0,
-        liveSessions: sessions.count ?? 0,
-      });
+        // Handle different response formats
+        const classesArray = Array.isArray(cls) ? cls : cls.classes || [];
+        const teachersArray = Array.isArray(teach) ? teach : teach.users || [];
+        const studentsArray = Array.isArray(stud) ? stud : stud.users || [];
+        const examsArray = Array.isArray(exams) ? exams : exams.exams || [];
 
-      // Build real subject data for charts - count chapters per subject
-      const subjects = sub.data || [];
-      if (subjects.length > 0) {
-        const { data: chapterData } = await supabase.from('chapters').select('subject_id');
-        const chapterCounts: Record<string, number> = {};
-        (chapterData || []).forEach(c => { chapterCounts[c.subject_id] = (chapterCounts[c.subject_id] || 0) + 1; });
-        setSubjectData(subjects.slice(0, 6).map(s => ({
-          name: s.name,
-          value: chapterCounts[s.id] || 0,
-        })));
+        setStats({
+          classes: classesArray.length,
+          subjects: 0,
+          chapters: 0,
+          materials: 0,
+          teachers: teachersArray.length,
+          students: studentsArray.length,
+          exams: examsArray.length,
+          liveSessions: 0,
+        });
+
+        setSubjectData([]);
+        setRecentMaterials([]);
+        setActiveSession(null);
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        // Set default stats if fetching fails
+        setStats({
+          classes: 0,
+          subjects: 0,
+          chapters: 0,
+          materials: 0,
+          teachers: 0,
+          students: 0,
+          exams: 0,
+          liveSessions: 0,
+        });
+      } finally {
+        setLoading(false);
       }
-
-      setRecentMaterials(recentMat.data || []);
-      setActiveSession(activeS.data?.[0] || null);
-      setLoading(false);
     };
+
     fetchAll();
   }, []);
 
@@ -258,17 +264,17 @@ const Dashboard = () => {
         </div>
         <div className="relative z-10">
           <p className="text-blue-200 text-sm font-medium mb-1">{greeting()},</p>
-          <h1 className="text-2xl font-bold" style={{fontFamily:'Poppins,sans-serif'}}>{profile?.full_name} 👋</h1>
+          <h1 className="text-2xl font-bold" style={{fontFamily:'Poppins,sans-serif'}}>{user?.full_name} 👋</h1>
           <p className="text-blue-200 mt-1 text-sm">
-            Welcome to EduCloud LMS — {profile?.role === 'student' ? 'Continue learning today!' : 'Manage your classroom efficiently.'}
+            Welcome to EduCloud LMS — {user?.role === 'student' ? 'Continue learning today!' : 'Manage your classroom efficiently.'}
           </p>
         </div>
       </div>
 
       {/* Role-based Dashboard */}
-      {(profile?.role === 'super_admin' || profile?.role === 'admin') && <AdminDashboard stats={stats} subjectData={subjectData} recentMaterials={recentMaterials} />}
-      {profile?.role === 'teacher' && <TeacherDashboard stats={stats} />}
-      {profile?.role === 'student' && <StudentDashboard stats={stats} activeSession={activeSession} />}
+      {(user?.role === 'super_admin' || user?.role === 'admin') && <AdminDashboard stats={stats} subjectData={subjectData} recentMaterials={recentMaterials} />}
+      {user?.role === 'teacher' && <TeacherDashboard stats={stats} />}
+      {user?.role === 'student' && <StudentDashboard stats={stats} activeSession={activeSession} />}
     </div>
   );
 };

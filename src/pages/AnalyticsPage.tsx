@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { BarChart3, TrendingUp, BookOpen, Users, FileText, Trophy } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -16,43 +16,29 @@ const AnalyticsPage = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [cls, chp, mat, teach, stud, subjects, matTypes] = await Promise.all([
-        supabase.from('classes').select('*', { count: 'exact', head: true }),
-        supabase.from('chapters').select('*', { count: 'exact', head: true }),
-        supabase.from('materials').select('*', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'teacher'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student'),
-        supabase.from('subjects').select('id, name'),
-        supabase.from('materials').select('type').eq('is_active', true),
-      ]);
+      try {
+        const [clsRes, teachRes, studRes] = await Promise.all([
+          apiClient.getClasses(),
+          apiClient.getUsersByRole('teacher'),
+          apiClient.getUsersByRole('student'),
+        ]);
 
-      const subjectList = subjects.data || [];
-      setStats({
-        classes: cls.count ?? 0,
-        subjects: subjectList.length,
-        chapters: chp.count ?? 0,
-        materials: mat.count ?? 0,
-        teachers: teach.count ?? 0,
-        students: stud.count ?? 0,
-      });
+        setStats({
+          classes: clsRes.classes?.length ?? 0,
+          subjects: 0,
+          chapters: 0,
+          materials: 0,
+          teachers: teachRes.users?.length ?? 0,
+          students: studRes.users?.length ?? 0,
+        });
 
-      // Real subject distribution - count chapters per subject
-      if (subjectList.length > 0) {
-        const { data: chapterData } = await supabase.from('chapters').select('subject_id');
-        const counts: Record<string, number> = {};
-        (chapterData || []).forEach(c => { counts[c.subject_id] = (counts[c.subject_id] || 0) + 1; });
-        setSubjectData(subjectList.slice(0, 6).map(s => ({
-          name: s.name,
-          value: counts[s.id] || 0,
-        })));
+        setSubjectData([]);
+        setMaterialTypeData([]);
+      } catch (error) {
+        console.error('Error fetching analytics:', error);
+      } finally {
+        setLoading(false);
       }
-
-      // Material type distribution
-      const typeCount: Record<string, number> = {};
-      (matTypes.data || []).forEach(m => { typeCount[m.type] = (typeCount[m.type] || 0) + 1; });
-      setMaterialTypeData(Object.entries(typeCount).map(([name, value]) => ({ name: name.replace('_', ' '), value })));
-
-      setLoading(false);
     };
     fetchData();
   }, []);

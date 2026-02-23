@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, GraduationCap } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
 }
 
 const CreateClassModal: React.FC<Props> = ({ onClose, onSuccess }) => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [grade, setGrade] = useState('');
@@ -18,22 +18,23 @@ const CreateClassModal: React.FC<Props> = ({ onClose, onSuccess }) => {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError('Class name is required'); return; }
+    if (!user?.school_id) { setError('No school assigned'); return; }
     setLoading(true);
     setError('');
 
-    const { error: err } = await supabase.from('classes').insert({
-      name: name.trim(),
-      description: description.trim() || null,
-      grade_level: grade ? parseInt(grade) : null,
-      created_by: profile?.user_id,
-    });
-
-    if (err) {
-      setError(err.message);
-    } else {
+    try {
+      await apiClient.createClass({
+        name: name.trim(),
+        description: description.trim() || null,
+        gradeLevel: grade ? parseInt(grade) : null,
+        school_id: user.school_id,
+      });
       onSuccess();
+    } catch (error: any) {
+      setError(error.message || 'Failed to create class');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

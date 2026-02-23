@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Users, Plus, Trash2, Search, Mail, Shield, GraduationCap, BookOpen, UserCheck, X, Eye, EyeOff } from 'lucide-react';
 
 interface Profile {
-  id: string;
+  _id: string;
   user_id: string;
   full_name: string;
   email: string;
   role: string;
   is_demo: boolean;
   created_at: string;
+  school_id?: string;
 }
 
 interface AddUserForm {
@@ -28,7 +29,7 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; icon: React.El
 };
 
 const UsersPage = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -40,7 +41,7 @@ const UsersPage = () => {
   const [addSuccess, setAddSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const myRole = profile?.role || 'student';
+  const myRole = user?.role || 'student';
 
   // Determine which roles this user can create
   const creatableRoles: Record<string, string[]> = {
@@ -59,25 +60,27 @@ const UsersPage = () => {
   const showRoles = visibleRoles[myRole] || [];
 
   const fetchUsers = async () => {
-    setLoading(true);
-    const roles = (showRoles.length > 0 ? showRoles : ['student']) as ('super_admin' | 'admin' | 'teacher' | 'student')[];
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .in('role', roles)
-      .order('created_at', { ascending: false });
-    setUsers(data || []);
-    setLoading(false);
+    try {
+      setLoading(true);
+      const userData = await apiClient.getUsers();
+      // API returns array directly
+      const usersArray = Array.isArray(userData) ? userData : [];
+      // Filter by visible roles
+      const filtered = usersArray.filter((u: any) => showRoles.includes(u.role));
+      setUsers(filtered);
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchUsers();
-    // Realtime subscription
-    const channel = supabase
-      .channel('profiles-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchUsers())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Polling instead of realtime subscription
+    const interval = setInterval(fetchUsers, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleAddUser = async () => {
@@ -93,18 +96,17 @@ const UsersPage = () => {
     setAddError('');
     setAddSuccess('');
 
-    const { data, error } = await supabase.functions.invoke('create-user', {
-      body: { ...form },
-    });
-
-    if (error || data?.error) {
-      setAddError(data?.error || error?.message || 'Failed to create user');
-    } else {
+    try {
+      await apiClient.register(form.email, form.password, form.full_name, form.role, user?.school_id);
       setAddSuccess(`✅ ${form.full_name} created successfully! They can login with ${form.email}`);
       setForm({ full_name: '', email: '', password: '', role: 'student' });
-      fetchUsers();
+      // Immediately refetch users instead of waiting for polling interval
+      setTimeout(() => fetchUsers(), 500);
+    } catch (error: any) {
+      setAddError(error.message || 'Failed to create user');
+    } finally {
+      setAdding(false);
     }
-    setAdding(false);
   };
 
   const filteredUsers = users.filter(u => {
@@ -201,7 +203,7 @@ const UsersPage = () => {
                 {filteredUsers.map(user => {
                   const cfg = ROLE_CONFIG[user.role] || ROLE_CONFIG.student;
                   return (
-                    <tr key={user.id} className="hover:bg-muted/20 transition-colors">
+                    <tr key={user._id} className="hover:bg-muted/20 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
@@ -276,6 +278,12 @@ const UsersPage = () => {
                 <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">{addSuccess}</div>
               )}
 
+              {!user?.school_id && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+                  ⚠️ <strong>No School Assigned:</strong> Your account has no school. New users will be created without school assignment. Ask Super Admin to assign your school first.
+                </div>
+              )}
+
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Full Name *</label>
                 <input
@@ -331,7 +339,11 @@ const UsersPage = () => {
               </div>
 
               <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs">
-                💡 Share the email and password with the user so they can login to EduCloud LMS.
+                {user?.school_id ? (
+                  <>✅ <strong>School Auto-Assigned:</strong> New users will be added to your school automatically.</>
+                ) : (
+                  <>💡 <strong>Info:</strong> Share email & password with the user to login. School will need to be assigned separately.</>
+                )}
               </div>
             </div>
 

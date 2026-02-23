@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ClipboardList, Timer, CheckCircle2, XCircle, Trophy, Plus, BookOpen } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Exam {
@@ -22,7 +22,7 @@ const DEMO_QUESTIONS = [
 ];
 
 const ExamPage = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
@@ -31,13 +31,18 @@ const ExamPage = () => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [score, setScore] = useState(0);
 
-  const isTeacher = profile?.role === 'teacher' || profile?.role === 'admin' || profile?.role === 'super_admin';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'super_admin';
 
   useEffect(() => {
     const fetchExams = async () => {
-      const { data } = await supabase.from('exams').select('*').eq('is_active', true);
-      setExams(data || []);
-      setLoading(false);
+      try {
+        const { exams: data } = await apiClient.getExams();
+        setExams(data || []);
+      } catch (error) {
+        console.error('Failed to fetch exams:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchExams();
   }, []);
