@@ -1,24 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { apiClient } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Users, Plus, Trash2, Search, Mail, Shield, GraduationCap, BookOpen, UserCheck, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Search, Mail, Shield, GraduationCap, BookOpen, UserCheck, X, Eye, EyeOff } from 'lucide-react';
 
 interface Profile {
-  _id: string;
+  id: string;
   user_id: string;
   full_name: string;
   email: string;
   role: string;
   is_demo: boolean;
   created_at: string;
-  school_id?: string;
-}
-
-interface AddUserForm {
-  full_name: string;
-  email: string;
-  password: string;
-  role: string;
 }
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -35,7 +27,7 @@ const UsersPage = () => {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState<AddUserForm>({ full_name: '', email: '', password: '', role: 'student' });
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student' });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
@@ -43,7 +35,6 @@ const UsersPage = () => {
 
   const myRole = user?.role || 'student';
 
-  // Determine which roles this user can create
   const creatableRoles: Record<string, string[]> = {
     super_admin: ['admin', 'teacher', 'student'],
     admin: ['teacher', 'student'],
@@ -51,7 +42,6 @@ const UsersPage = () => {
   };
   const canCreate = creatableRoles[myRole] || [];
 
-  // Determine which roles to show
   const visibleRoles: Record<string, string[]> = {
     super_admin: ['super_admin', 'admin', 'teacher', 'student'],
     admin: ['teacher', 'student'],
@@ -62,15 +52,20 @@ const UsersPage = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const userData = await apiClient.getUsers();
-      // API returns array directly
-      const usersArray = Array.isArray(userData) ? userData : [];
-      // Filter by visible roles
-      const filtered = usersArray.filter((u: any) => showRoles.includes(u.role));
-      setUsers(filtered);
+      // Join profiles with user_roles to get actual roles
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      const { data: roles } = await supabase.from('user_roles').select('*');
+
+      if (profiles && roles) {
+        const roleMap = new Map(roles.map(r => [r.user_id, r.role]));
+        const enriched = profiles.map(p => ({
+          ...p,
+          role: roleMap.get(p.user_id) || p.role,
+        }));
+        setUsers(enriched.filter(u => showRoles.includes(u.role)));
+      }
     } catch (error) {
       console.error('Failed to fetch users:', error);
-      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -78,9 +73,6 @@ const UsersPage = () => {
 
   useEffect(() => {
     fetchUsers();
-    // Polling instead of realtime subscription
-    const interval = setInterval(fetchUsers, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const handleAddUser = async () => {
@@ -97,10 +89,15 @@ const UsersPage = () => {
     setAddSuccess('');
 
     try {
-      await apiClient.register(form.email, form.password, form.full_name, form.role, user?.school_id);
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: { email: form.email, password: form.password, full_name: form.full_name, role: form.role },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
       setAddSuccess(`✅ ${form.full_name} created successfully! They can login with ${form.email}`);
       setForm({ full_name: '', email: '', password: '', role: 'student' });
-      // Immediately refetch users instead of waiting for polling interval
       setTimeout(() => fetchUsers(), 500);
     } catch (error: any) {
       setAddError(error.message || 'Failed to create user');
@@ -129,10 +126,8 @@ const UsersPage = () => {
           <p className="text-muted-foreground text-sm mt-1">{users.length} total users</p>
         </div>
         {canCreate.length > 0 && (
-          <button
-            onClick={() => { setShowAdd(true); setAddError(''); setAddSuccess(''); }}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all"
-          >
+          <button onClick={() => { setShowAdd(true); setAddError(''); setAddSuccess(''); }}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all">
             <Plus className="w-4 h-4" /> Add User
           </button>
         )}
@@ -165,18 +160,11 @@ const UsersPage = () => {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name or email..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or email..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
         </div>
-        <select
-          value={filterRole}
-          onChange={e => setFilterRole(e.target.value)}
-          className="px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-        >
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)}
+          className="px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm">
           <option value="all">All Roles</option>
           {showRoles.map(r => <option key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</option>)}
         </select>
@@ -200,41 +188,40 @@ const UsersPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredUsers.map(user => {
-                  const cfg = ROLE_CONFIG[user.role] || ROLE_CONFIG.student;
+                {filteredUsers.map(u => {
+                  const cfg = ROLE_CONFIG[u.role] || ROLE_CONFIG.student;
                   return (
-                    <tr key={user._id} className="hover:bg-muted/20 transition-colors">
+                    <tr key={u.id} className="hover:bg-muted/20 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-                            user.role === 'super_admin' ? 'bg-gradient-purple' :
-                            user.role === 'admin' ? 'bg-gradient-blue' :
-                            user.role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
+                            u.role === 'super_admin' ? 'bg-gradient-purple' :
+                            u.role === 'admin' ? 'bg-gradient-blue' :
+                            u.role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
                           }`}>
-                            {user.full_name[0]?.toUpperCase()}
+                            {u.full_name[0]?.toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-semibold text-sm">{user.full_name}</p>
+                            <p className="font-semibold text-sm">{u.full_name}</p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Mail className="w-3 h-3" />{user.email}
+                              <Mail className="w-3 h-3" />{u.email}
                             </p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.color}`}>
-                          <cfg.icon className="w-3 h-3" />
-                          {cfg.label}
+                          <cfg.icon className="w-3 h-3" />{cfg.label}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-muted-foreground">
-                        {new Date(user.created_at).toLocaleDateString()}
+                        {new Date(u.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          user.is_demo ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-green-100 text-green-700 border border-green-200'
+                          u.is_demo ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-green-100 text-green-700 border border-green-200'
                         }`}>
-                          {user.is_demo ? '🔒 Demo' : '✅ Active'}
+                          {u.is_demo ? '🔒 Demo' : '✅ Active'}
                         </span>
                       </td>
                     </tr>
@@ -271,55 +258,27 @@ const UsersPage = () => {
             </div>
 
             <div className="p-6 space-y-4">
-              {addError && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{addError}</div>
-              )}
-              {addSuccess && (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">{addSuccess}</div>
-              )}
-
-              {!user?.school_id && (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs">
-                  ⚠️ <strong>No School Assigned:</strong> Your account has no school. New users will be created without school assignment. Ask Super Admin to assign your school first.
-                </div>
-              )}
+              {addError && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{addError}</div>}
+              {addSuccess && <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">{addSuccess}</div>}
 
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Full Name *</label>
-                <input
-                  value={form.full_name}
-                  onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-                  placeholder="e.g. John Smith"
-                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                />
+                <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="e.g. John Smith"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
 
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Email (Login ID) *</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="e.g. john@school.com"
-                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                />
+                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="e.g. john@school.com"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
 
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Password *</label>
                 <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder="Min 6 characters"
-                    className="w-full px-4 py-2.5 pr-10 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
+                  <input type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Min 6 characters"
+                    className="w-full px-4 py-2.5 pr-10 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -327,35 +286,21 @@ const UsersPage = () => {
 
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Role *</label>
-                <select
-                  value={form.role}
-                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                >
-                  {canCreate.map(r => (
-                    <option key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</option>
-                  ))}
+                <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm">
+                  {canCreate.map(r => <option key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</option>)}
                 </select>
               </div>
 
               <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs">
-                {user?.school_id ? (
-                  <>✅ <strong>School Auto-Assigned:</strong> New users will be added to your school automatically.</>
-                ) : (
-                  <>💡 <strong>Info:</strong> Share email & password with the user to login. School will need to be assigned separately.</>
-                )}
+                💡 Share email & password with the user so they can login to EduCloud LMS.
               </div>
             </div>
 
             <div className="flex gap-3 p-6 border-t border-border">
-              <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 rounded-xl border border-border font-medium text-sm hover:bg-muted transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={handleAddUser}
-                disabled={adding}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-blue text-white font-medium text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
+              <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 rounded-xl border border-border font-medium text-sm hover:bg-muted transition-colors">Cancel</button>
+              <button onClick={handleAddUser} disabled={adding}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-blue text-white font-medium text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {adding ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus className="w-4 h-4" />}
                 {adding ? 'Creating...' : 'Create User'}
               </button>

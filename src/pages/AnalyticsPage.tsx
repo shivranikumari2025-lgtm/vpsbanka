@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { apiClient } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { BarChart3, TrendingUp, BookOpen, Users, FileText, Trophy } from 'lucide-react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -17,23 +14,40 @@ const AnalyticsPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [clsRes, teachRes, studRes] = await Promise.all([
-          apiClient.getClasses(),
-          apiClient.getUsersByRole('teacher'),
-          apiClient.getUsersByRole('student'),
+        const [
+          { count: clsCount }, { count: subCount }, { count: chpCount },
+          { data: mats }, { data: teachRoles }, { data: studRoles },
+          { data: subjects },
+        ] = await Promise.all([
+          supabase.from('classes').select('*', { count: 'exact', head: true }),
+          supabase.from('subjects').select('*', { count: 'exact', head: true }),
+          supabase.from('chapters').select('*', { count: 'exact', head: true }),
+          supabase.from('materials').select('type'),
+          supabase.from('user_roles').select('*').eq('role', 'teacher'),
+          supabase.from('user_roles').select('*').eq('role', 'student'),
+          supabase.from('subjects').select('id, name'),
         ]);
 
         setStats({
-          classes: clsRes.classes?.length ?? 0,
-          subjects: 0,
-          chapters: 0,
-          materials: 0,
-          teachers: teachRes.users?.length ?? 0,
-          students: studRes.users?.length ?? 0,
+          classes: clsCount || 0, subjects: subCount || 0, chapters: chpCount || 0,
+          materials: mats?.length || 0, teachers: teachRoles?.length || 0, students: studRoles?.length || 0,
         });
 
-        setSubjectData([]);
-        setMaterialTypeData([]);
+        // Chapters per subject
+        if (subjects) {
+          const chapCounts = await Promise.all(subjects.map(async s => {
+            const { count } = await supabase.from('chapters').select('*', { count: 'exact', head: true }).eq('subject_id', s.id);
+            return { name: s.name, value: count || 0 };
+          }));
+          setSubjectData(chapCounts.filter(c => c.value > 0));
+        }
+
+        // Material types
+        if (mats && mats.length > 0) {
+          const typeCounts: Record<string, number> = {};
+          mats.forEach(m => { typeCounts[m.type] = (typeCounts[m.type] || 0) + 1; });
+          setMaterialTypeData(Object.entries(typeCounts).map(([name, value]) => ({ name: name.replace('_', ' '), value })));
+        }
       } catch (error) {
         console.error('Error fetching analytics:', error);
       } finally {
@@ -56,7 +70,6 @@ const AnalyticsPage = () => {
         <p className="text-muted-foreground text-sm mt-1">Platform performance & insights</p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {[
           { label: 'Total Students', value: stats.students, icon: Users, gradient: 'bg-gradient-amber' },
@@ -65,7 +78,7 @@ const AnalyticsPage = () => {
           { label: 'Total Subjects', value: stats.subjects, icon: FileText, gradient: 'bg-gradient-purple' },
           { label: 'Chapters', value: stats.chapters, icon: TrendingUp, gradient: 'bg-gradient-red' },
           { label: 'Materials', value: stats.materials, icon: Trophy, gradient: 'bg-gradient-amber' },
-        ].map((s) => (
+        ].map(s => (
           <div key={s.label} className="stat-card">
             <div className="flex items-center justify-between mb-4">
               <div className={`w-10 h-10 rounded-xl ${s.gradient} flex items-center justify-center`}>
@@ -78,7 +91,6 @@ const AnalyticsPage = () => {
         ))}
       </div>
 
-      {/* Charts */}
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="stat-card">
           <h3 className="font-semibold mb-4">Chapters per Subject</h3>
@@ -89,12 +101,10 @@ const AnalyticsPage = () => {
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                 <YAxis tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} />
                 <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px' }} />
-                <Bar dataKey="value" name="Chapters" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
+                <Bar dataKey="value" name="Chapters" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <p className="text-muted-foreground text-sm text-center py-12">No subjects created yet</p>
-          )}
+          ) : <p className="text-muted-foreground text-sm text-center py-12">No subjects created yet</p>}
         </div>
 
         <div className="stat-card">
@@ -104,9 +114,7 @@ const AnalyticsPage = () => {
               <ResponsiveContainer width={180} height={180}>
                 <PieChart>
                   <Pie data={materialTypeData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                    {materialTypeData.map((_, idx) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                    ))}
+                    {materialTypeData.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                   </Pie>
                   <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px' }} />
                 </PieChart>
@@ -123,21 +131,18 @@ const AnalyticsPage = () => {
                 ))}
               </div>
             </div>
-          ) : (
-            <p className="text-muted-foreground text-sm text-center py-12">No materials uploaded yet</p>
-          )}
+          ) : <p className="text-muted-foreground text-sm text-center py-12">No materials uploaded yet</p>}
         </div>
       </div>
 
-      {/* Summary */}
       <div className="bg-card rounded-2xl border border-border shadow-card p-6">
         <h3 className="font-semibold mb-4">Platform Summary</h3>
         <div className="grid sm:grid-cols-3 gap-4">
           {[
             { label: 'Total Content Items', value: stats.materials, desc: 'Across all subjects', color: 'text-blue-600', bg: 'bg-blue-50' },
             { label: 'Active Users', value: stats.teachers + stats.students, desc: 'Teachers + Students', color: 'text-green-600', bg: 'bg-green-50' },
-            { label: 'Coverage', value: `${stats.subjects > 0 ? Math.round((stats.chapters / Math.max(stats.subjects, 1))) : 0} avg`, desc: 'Chapters per subject', color: 'text-purple-600', bg: 'bg-purple-50' },
-          ].map((item) => (
+            { label: 'Coverage', value: `${stats.subjects > 0 ? Math.round(stats.chapters / Math.max(stats.subjects, 1)) : 0} avg`, desc: 'Chapters per subject', color: 'text-purple-600', bg: 'bg-purple-50' },
+          ].map(item => (
             <div key={item.label} className={`${item.bg} rounded-xl p-4`}>
               <p className={`text-3xl font-bold ${item.color}`}>{item.value}</p>
               <p className="font-semibold text-sm mt-1">{item.label}</p>

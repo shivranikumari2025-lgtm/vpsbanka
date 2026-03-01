@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Settings, User, Bell, Shield, Palette, Globe, Save, Lock } from 'lucide-react';
+import { Settings, User, Bell, Shield, Globe, Save, Lock } from 'lucide-react';
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -16,7 +16,7 @@ const SettingsPage = () => {
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const isDemo = user?.is_demo;
+  const isDemo = user?.is_demo ?? false;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -54,24 +54,18 @@ const SettingsPage = () => {
         <div className="space-y-4">
           <div>
             <label className="text-sm font-semibold mb-1.5 block">Full Name</label>
-            <input
-              defaultValue={user?.full_name}
-              disabled={isDemo}
-              className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            />
+            <input defaultValue={user?.full_name} disabled={isDemo}
+              className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm disabled:opacity-50 disabled:cursor-not-allowed" />
           </div>
           <div>
             <label className="text-sm font-semibold mb-1.5 block">Email</label>
-            <input
-              defaultValue={user?.email}
-              disabled
-              className="w-full px-4 py-2.5 rounded-xl border border-border bg-muted text-muted-foreground text-sm cursor-not-allowed"
-            />
+            <input defaultValue={user?.email} disabled
+              className="w-full px-4 py-2.5 rounded-xl border border-border bg-muted text-muted-foreground text-sm cursor-not-allowed" />
           </div>
           {isDemo && (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">
               <Lock className="w-4 h-4 flex-shrink-0" />
-              Demo accounts cannot be edited. Use a real account to update profile.
+              Demo accounts cannot be edited.
             </div>
           )}
         </div>
@@ -85,28 +79,21 @@ const SettingsPage = () => {
           </div>
           <h2 className="font-bold">Notifications</h2>
         </div>
-
         <div className="space-y-4">
           {[
             { key: 'email', label: 'Email Notifications', desc: 'Receive updates via email' },
             { key: 'liveClass', label: 'Live Class Alerts', desc: 'Get notified when a class starts' },
             { key: 'exams', label: 'Exam Reminders', desc: 'Reminders before scheduled exams' },
             { key: 'assignments', label: 'Assignment Updates', desc: 'Notify when assignments are due' },
-          ].map((n) => (
+          ].map(n => (
             <div key={n.key} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/30 transition-colors">
               <div>
                 <p className="font-medium text-sm">{n.label}</p>
                 <p className="text-xs text-muted-foreground">{n.desc}</p>
               </div>
-              <button
-                onClick={() => setNotifications(prev => ({ ...prev, [n.key]: !prev[n.key as keyof typeof prev] }))}
-                className={`relative w-11 h-6 rounded-full transition-colors ${
-                  notifications[n.key as keyof typeof notifications] ? 'bg-primary' : 'bg-muted-foreground/30'
-                }`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                  notifications[n.key as keyof typeof notifications] ? 'translate-x-5' : 'translate-x-0'
-                }`} />
+              <button onClick={() => setNotifications(prev => ({ ...prev, [n.key]: !prev[n.key as keyof typeof prev] }))}
+                className={`relative w-11 h-6 rounded-full transition-colors ${notifications[n.key as keyof typeof notifications] ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${notifications[n.key as keyof typeof notifications] ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
           ))}
@@ -121,31 +108,17 @@ const SettingsPage = () => {
           </div>
           <h2 className="font-bold">Security</h2>
         </div>
-
         <div className="space-y-3">
           <div className="flex items-center justify-between p-4 rounded-xl bg-muted/30">
             <div>
               <p className="font-medium text-sm">Password</p>
               <p className="text-xs text-muted-foreground">Last changed: N/A</p>
             </div>
-            <button
-              disabled={isDemo}
-              className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Change
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-4 rounded-xl bg-muted/30">
-            <div>
-              <p className="font-medium text-sm">Two-Factor Authentication</p>
-              <p className="text-xs text-muted-foreground">Add extra security to your account</p>
-            </div>
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">Coming Soon</span>
+            <button disabled={isDemo} className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Change</button>
           </div>
         </div>
       </div>
 
-      {/* System Info (Super Admin) */}
       {(user?.role === 'super_admin' || user?.role === 'admin') && (
         <div className="bg-card rounded-2xl border border-border shadow-card p-6">
           <div className="flex items-center gap-3 mb-6">
@@ -158,11 +131,9 @@ const SettingsPage = () => {
             {[
               { label: 'Platform', value: 'EduCloud LMS' },
               { label: 'Version', value: '2.0.0 Professional' },
-              { label: 'Database', value: 'PostgreSQL (Cloud)' },
+              { label: 'Database', value: 'Cloud PostgreSQL' },
               { label: 'Real-time', value: 'Active via WebSockets' },
-              { label: 'Storage', value: 'Cloud Storage' },
-              { label: 'Auth', value: 'Secure JWT Authentication' },
-            ].map((item) => (
+            ].map(item => (
               <div key={item.label} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
                 <span className="text-sm text-muted-foreground">{item.label}</span>
                 <span className="text-sm font-medium">{item.value}</span>
@@ -173,16 +144,10 @@ const SettingsPage = () => {
       )}
 
       {saved && (
-        <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm font-medium text-center">
-          ✅ Settings saved successfully!
-        </div>
+        <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm font-medium text-center">✅ Settings saved successfully!</div>
       )}
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-blue text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50"
-      >
+      <button onClick={handleSave} disabled={saving}
+        className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-blue text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">
         {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
         {saving ? 'Saving...' : 'Save Settings'}
       </button>

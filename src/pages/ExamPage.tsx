@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { ClipboardList, Timer, CheckCircle2, XCircle, Trophy, Plus, BookOpen } from 'lucide-react';
-import { apiClient } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-interface Exam {
+interface Question {
   id: string;
-  title: string;
-  description: string;
-  duration_minutes: number;
-  total_marks: number;
-  pass_marks: number;
-  chapter_id: string;
+  question_text: string;
+  option_a: string;
+  option_b: string;
+  option_c: string;
+  option_d: string;
+  correct_answer: string;
+  marks: number;
+}
+
+interface Exam {
+  id: string; title: string; description: string; duration_minutes: number;
+  total_marks: number; pass_marks: number; chapter_id: string;
 }
 
 const DEMO_QUESTIONS = [
@@ -36,8 +42,8 @@ const ExamPage = () => {
   useEffect(() => {
     const fetchExams = async () => {
       try {
-        const { exams: data } = await apiClient.getExams();
-        setExams(data || []);
+        const { data } = await supabase.from('exams').select('*');
+        setExams((data as Exam[]) || []);
       } catch (error) {
         console.error('Failed to fetch exams:', error);
       } finally {
@@ -61,11 +67,8 @@ const ExamPage = () => {
 
   const handleSubmit = () => {
     let s = 0;
-    DEMO_QUESTIONS.forEach(q => {
-      if (answers[q.id] === q.correct_answer) s += q.marks;
-    });
-    setScore(s);
-    setSubmitted(true);
+    DEMO_QUESTIONS.forEach(q => { if (answers[q.id] === q.correct_answer) s += q.marks; });
+    setScore(s); setSubmitted(true);
   };
 
   const formatTime = (secs: number) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
@@ -81,51 +84,18 @@ const ExamPage = () => {
             <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${passed ? 'bg-green-100' : 'bg-red-100'}`}>
               {passed ? <Trophy className="w-12 h-12 text-green-600" /> : <XCircle className="w-12 h-12 text-red-500" />}
             </div>
-            <h2 className="text-2xl font-bold mb-2" style={{fontFamily:'Poppins,sans-serif'}}>
-              {passed ? '🎉 Excellent!' : 'Keep Practicing'}
-            </h2>
+            <h2 className="text-2xl font-bold mb-2">{passed ? '🎉 Excellent!' : 'Keep Practicing'}</h2>
             <p className="text-muted-foreground mb-6">{activeExam.title}</p>
-
             <div className="grid grid-cols-3 gap-4 mb-8">
-              {[
-                { label: 'Score', value: `${score}/${totalMarks}` },
-                { label: 'Percentage', value: `${pct}%` },
-                { label: 'Result', value: passed ? 'PASS' : 'FAIL' },
-              ].map(s => (
+              {[{ label: 'Score', value: `${score}/${totalMarks}` }, { label: 'Percentage', value: `${pct}%` }, { label: 'Result', value: passed ? 'PASS' : 'FAIL' }].map(s => (
                 <div key={s.label} className={`p-4 rounded-xl ${passed ? 'bg-green-50' : 'bg-red-50'}`}>
                   <p className={`text-2xl font-bold ${passed ? 'text-green-700' : 'text-red-600'}`}>{s.value}</p>
                   <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
                 </div>
               ))}
             </div>
-
-            <div className="space-y-3 text-left mb-6">
-              {DEMO_QUESTIONS.map((q, i) => {
-                const correct = answers[q.id] === q.correct_answer;
-                const opts = { A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d };
-                return (
-                  <div key={q.id} className={`p-3 rounded-xl border text-sm ${correct ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    <div className="flex items-start gap-2">
-                      {correct ? <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" /> : <XCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />}
-                      <div>
-                        <p className="font-medium">{i+1}. {q.question_text}</p>
-                        <p className="text-xs mt-1 text-muted-foreground">
-                          Your answer: <strong>{answers[q.id] ? opts[answers[q.id] as keyof typeof opts] : 'Not answered'}</strong>
-                          {!correct && <> · Correct: <strong className="text-green-700">{opts[q.correct_answer as keyof typeof opts]}</strong></>}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => { setActiveExam(null); setAnswers({}); setSubmitted(false); }}
-              className="w-full py-3 rounded-xl bg-gradient-blue text-white font-semibold hover:opacity-90 transition-all"
-            >
-              Back to Exams
-            </button>
+            <button onClick={() => { setActiveExam(null); setAnswers({}); setSubmitted(false); }}
+              className="w-full py-3 rounded-xl bg-gradient-blue text-white font-semibold hover:opacity-90 transition-all">Back to Exams</button>
           </div>
         </div>
       );
@@ -135,39 +105,24 @@ const ExamPage = () => {
     return (
       <div className="max-w-2xl mx-auto space-y-4">
         <div className="flex items-center justify-between bg-card rounded-2xl border border-border p-4 shadow-card">
-          <div>
-            <h2 className="font-bold">{activeExam.title}</h2>
-            <p className="text-sm text-muted-foreground">{DEMO_QUESTIONS.length} questions · {totalMarks} marks</p>
-          </div>
+          <div><h2 className="font-bold">{activeExam.title}</h2><p className="text-sm text-muted-foreground">{DEMO_QUESTIONS.length} questions · {totalMarks} marks</p></div>
           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-lg ${timeLeft < 60 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700'}`}>
-            <Timer className="w-5 h-5" />
-            {formatTime(timeLeft)}
+            <Timer className="w-5 h-5" />{formatTime(timeLeft)}
           </div>
         </div>
-
         {DEMO_QUESTIONS.map((q, i) => {
           const optLabels = { A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d };
           return (
             <div key={q.id} className="bg-card rounded-2xl border border-border p-5 shadow-card">
               <p className="font-semibold mb-4 text-sm">
                 <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold mr-2">{i+1}</span>
-                {q.question_text}
-                <span className="text-muted-foreground font-normal ml-2">({q.marks} marks)</span>
+                {q.question_text}<span className="text-muted-foreground font-normal ml-2">({q.marks} marks)</span>
               </p>
               <div className="grid sm:grid-cols-2 gap-2">
                 {opts.map(opt => (
-                  <button
-                    key={opt}
-                    onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt }))}
-                    className={`flex items-center gap-3 p-3 rounded-xl border text-sm text-left transition-all ${
-                      answers[q.id] === opt
-                        ? 'border-primary bg-primary/10 text-primary font-semibold'
-                        : 'border-border hover:border-primary/50 hover:bg-muted'
-                    }`}
-                  >
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      answers[q.id] === opt ? 'bg-primary text-white' : 'bg-muted'
-                    }`}>{opt}</span>
+                  <button key={opt} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                    className={`flex items-center gap-3 p-3 rounded-xl border text-sm text-left transition-all ${answers[q.id] === opt ? 'border-primary bg-primary/10 text-primary font-semibold' : 'border-border hover:border-primary/50 hover:bg-muted'}`}>
+                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${answers[q.id] === opt ? 'bg-primary text-white' : 'bg-muted'}`}>{opt}</span>
                     {optLabels[opt]}
                   </button>
                 ))}
@@ -175,11 +130,7 @@ const ExamPage = () => {
             </div>
           );
         })}
-
-        <button
-          onClick={handleSubmit}
-          className="w-full py-3.5 rounded-xl bg-gradient-hero text-white font-bold text-lg shadow-glow-blue hover:opacity-90 transition-all"
-        >
+        <button onClick={handleSubmit} className="w-full py-3.5 rounded-xl bg-gradient-hero text-white font-bold text-lg shadow-glow-blue hover:opacity-90 transition-all">
           Submit Exam ({Object.keys(answers).length}/{DEMO_QUESTIONS.length} answered)
         </button>
       </div>
@@ -189,65 +140,26 @@ const ExamPage = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" style={{fontFamily:'Poppins,sans-serif'}}>Exams & Practice</h1>
-          <p className="text-muted-foreground text-sm mt-1">Chapter-wise MCQ exams with auto-evaluation</p>
-        </div>
-        {isTeacher && (
-          <button className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all">
-            <Plus className="w-4 h-4" /> Create Exam
-          </button>
-        )}
+        <div><h1 className="text-2xl font-bold">Exams & Practice</h1><p className="text-muted-foreground text-sm mt-1">Chapter-wise MCQ exams with auto-evaluation</p></div>
+        {isTeacher && <button className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all"><Plus className="w-4 h-4" /> Create Exam</button>}
       </div>
-
-      {/* Demo exam always shown */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {[
-          { title: 'Mathematics - Chapter 1: Real Numbers', duration: 30, questions: 5, marks: 10, chapter: 'Real Numbers', difficulty: 'Easy' },
+        {[{ title: 'Mathematics - Real Numbers', duration: 30, questions: 5, marks: 10, chapter: 'Real Numbers', difficulty: 'Easy' },
           { title: 'Science - Matter & Properties', duration: 45, questions: 10, marks: 20, chapter: 'Matter', difficulty: 'Medium' },
           { title: 'English - Literature Quiz', duration: 20, questions: 5, marks: 10, chapter: 'Literature', difficulty: 'Easy' },
         ].map((exam, i) => (
-          <div key={i} className="bg-card rounded-2xl border border-border shadow-card p-5 hover:shadow-card-lg transition-all group">
+          <div key={i} className="bg-card rounded-2xl border border-border shadow-card p-5">
             <div className="flex items-start justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-purple flex items-center justify-center">
-                <ClipboardList className="w-6 h-6 text-white" />
-              </div>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                exam.difficulty === 'Easy' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-              }`}>{exam.difficulty}</span>
+              <div className="w-12 h-12 rounded-xl bg-gradient-purple flex items-center justify-center"><ClipboardList className="w-6 h-6 text-white" /></div>
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${exam.difficulty === 'Easy' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{exam.difficulty}</span>
             </div>
-            <h3 className="font-bold text-sm mb-1 line-clamp-2">{exam.title}</h3>
-            <p className="text-xs text-muted-foreground mb-4">{exam.chapter}</p>
+            <h3 className="font-bold text-sm mb-1">{exam.title}</h3>
             <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
-              <div className="flex items-center gap-1"><Timer className="w-3.5 h-3.5" />{exam.duration} min</div>
-              <div className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5" />{exam.questions} Qs</div>
-              <div className="flex items-center gap-1"><Trophy className="w-3.5 h-3.5" />{exam.marks} marks</div>
+              <span><Timer className="w-3.5 h-3.5 inline mr-1" />{exam.duration} min</span>
+              <span><BookOpen className="w-3.5 h-3.5 inline mr-1" />{exam.questions} Qs</span>
             </div>
-            <button
-              onClick={() => setActiveExam({ id: `demo-${i}`, title: exam.title, description: '', duration_minutes: exam.duration, total_marks: exam.marks, pass_marks: Math.floor(exam.marks * 0.4), chapter_id: '' })}
-              className="w-full py-2 rounded-xl bg-gradient-blue text-white text-sm font-semibold hover:opacity-90 transition-all"
-            >
-              Start Exam
-            </button>
-          </div>
-        ))}
-
-        {exams.map((exam) => (
-          <div key={exam.id} className="bg-card rounded-2xl border border-border shadow-card p-5">
-            <div className="w-12 h-12 rounded-xl bg-gradient-green flex items-center justify-center mb-4">
-              <ClipboardList className="w-6 h-6 text-white" />
-            </div>
-            <h3 className="font-bold text-sm mb-2">{exam.title}</h3>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
-              <span><Timer className="w-3 h-3 inline mr-1" />{exam.duration_minutes} min</span>
-              <span><Trophy className="w-3 h-3 inline mr-1" />{exam.total_marks} marks</span>
-            </div>
-            <button
-              onClick={() => setActiveExam(exam)}
-              className="w-full py-2 rounded-xl bg-gradient-green text-white text-sm font-semibold hover:opacity-90 transition-all"
-            >
-              Start Exam
-            </button>
+            <button onClick={() => setActiveExam({ id: `demo-${i}`, title: exam.title, description: '', duration_minutes: exam.duration, total_marks: exam.marks, pass_marks: Math.floor(exam.marks * 0.4), chapter_id: '' })}
+              className="w-full py-2 rounded-xl bg-gradient-blue text-white text-sm font-semibold hover:opacity-90 transition-all">Start Exam</button>
           </div>
         ))}
       </div>

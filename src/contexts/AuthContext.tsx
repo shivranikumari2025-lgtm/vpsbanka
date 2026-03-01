@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { apiClient } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Profile {
-  _id: string;
+  id: string;
+  user_id: string;
   email: string;
   full_name: string;
   role: 'super_admin' | 'admin' | 'teacher' | 'student';
   avatar_url?: string;
-  school_id?: string;
-  phone?: string;
+  is_demo: boolean;
 }
 
 interface AuthContextType {
@@ -24,46 +24,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check if user is already logged in
-    const fetchUser = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (token) {
-          apiClient.setToken(token);
-          const { user: userData } = await apiClient.getCurrentUser();
-          setUser(userData);
-        }
-      } catch (error) {
-        localStorage.removeItem('token');
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchUser();
-  }, []);
-
-  const signIn = async (email: string, password: string) => {
+  const fetchProfile = async (userId: string) => {
     try {
-      const { token, user: userData } = await apiClient.login(email, password);
-      setUser(userData);
-      return { error: null };
-    } catch (error: any) {
-      return { error };
+      // Get role from user_roles (secure, server-side)
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .single();
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (profile) {
+        setUser({
+          ...profile,
+          role: (roleData?.role || profile.role) as Profile['role'],
+        });
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
     }
   };
 
+  useEffect(() => {
+    // Listen for auth changes FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        // Use setTimeout to avoid Supabase deadlock
+        setTimeout(() => fetchProfile(session.user.id), 0);
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    // Then check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
+  };
+
   const signOut = async () => {
-    try {
-      await apiClient.logout();
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setUser(null);
-      localStorage.removeItem('token');
-    }
+    await supabase.auth.signOut();
+    setUser(null);
   };
 
   return (
