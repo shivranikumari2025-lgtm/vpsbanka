@@ -357,6 +357,45 @@ export type Database = {
           },
         ]
       }
+      schedules: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          duration_minutes: number
+          id: string
+          meeting_link: string | null
+          scheduled_at: string
+          teacher_id: string
+          title: string
+          type: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number
+          id?: string
+          meeting_link?: string | null
+          scheduled_at: string
+          teacher_id: string
+          title: string
+          type?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number
+          id?: string
+          meeting_link?: string | null
+          scheduled_at?: string
+          teacher_id?: string
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       subjects: {
         Row: {
           class_id: string
