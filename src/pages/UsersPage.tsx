@@ -1,19 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Users, Plus, Search, Mail, Shield, GraduationCap, BookOpen, UserCheck, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Search, Mail, Shield, GraduationCap, BookOpen, UserCheck, X, Eye, EyeOff, School } from 'lucide-react';
 
 interface Profile {
-  id: string;
-  user_id: string;
-  full_name: string;
-  email: string;
-  role: string;
-  is_demo: boolean;
-  created_at: string;
+  id: string; user_id: string; full_name: string; email: string;
+  role: string; is_demo: boolean; created_at: string; school_id?: string;
 }
 
+interface SchoolItem { id: string; name: string; code: string; }
+
 const ROLE_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  developer: { label: 'Developer', color: 'bg-cyan-100 text-cyan-700 border-cyan-200', icon: Shield },
   super_admin: { label: 'Super Admin', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Shield },
   admin: { label: 'School Admin', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Shield },
   teacher: { label: 'Teacher', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: BookOpen },
@@ -23,19 +21,22 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; icon: React.El
 const UsersPage = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
+  const [schools, setSchools] = useState<SchoolItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student' });
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student', school_id: '' });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   const myRole = user?.role || 'student';
+  const isDeveloper = myRole === 'developer';
 
   const creatableRoles: Record<string, string[]> = {
+    developer: ['super_admin', 'admin', 'teacher', 'student'],
     super_admin: ['admin', 'teacher', 'student'],
     admin: ['teacher', 'student'],
     teacher: ['student'],
@@ -43,8 +44,9 @@ const UsersPage = () => {
   const canCreate = creatableRoles[myRole] || [];
 
   const visibleRoles: Record<string, string[]> = {
+    developer: ['developer', 'super_admin', 'admin', 'teacher', 'student'],
     super_admin: ['super_admin', 'admin', 'teacher', 'student'],
-    admin: ['teacher', 'student'],
+    admin: ['admin', 'teacher', 'student'],
     teacher: ['student'],
   };
   const showRoles = visibleRoles[myRole] || [];
@@ -52,17 +54,22 @@ const UsersPage = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      // Join profiles with user_roles to get actual roles
       const { data: profiles } = await supabase.from('profiles').select('*');
       const { data: roles } = await supabase.from('user_roles').select('*');
 
       if (profiles && roles) {
-        const roleMap = new Map(roles.map(r => [r.user_id, r.role]));
-        const enriched = profiles.map(p => ({
+        const roleMap = new Map(roles.map((r: any) => [r.user_id, r.role]));
+        const enriched = profiles.map((p: any) => ({
           ...p,
           role: roleMap.get(p.user_id) || p.role,
         }));
-        setUsers(enriched.filter(u => showRoles.includes(u.role)));
+        setUsers(enriched.filter((u: any) => showRoles.includes(u.role)));
+      }
+
+      // Fetch schools for developer
+      if (isDeveloper) {
+        const { data: schoolData } = await supabase.from('schools').select('id, name, code');
+        setSchools((schoolData as SchoolItem[]) || []);
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -71,33 +78,28 @@ const UsersPage = () => {
     }
   };
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  useEffect(() => { fetchUsers(); }, []);
 
   const handleAddUser = async () => {
     if (!form.full_name.trim() || !form.email.trim() || !form.password.trim()) {
-      setAddError('All fields are required');
-      return;
+      setAddError('All fields are required'); return;
     }
-    if (form.password.length < 6) {
-      setAddError('Password must be at least 6 characters');
-      return;
+    if (form.password.length < 6) { setAddError('Password must be at least 6 characters'); return; }
+    if (isDeveloper && !form.school_id && form.role !== 'developer') {
+      setAddError('Please select a school for this user'); return;
     }
-    setAdding(true);
-    setAddError('');
-    setAddSuccess('');
+    setAdding(true); setAddError(''); setAddSuccess('');
 
     try {
-      const { data, error } = await supabase.functions.invoke('create-user', {
-        body: { email: form.email, password: form.password, full_name: form.full_name, role: form.role },
-      });
+      const body: any = { email: form.email, password: form.password, full_name: form.full_name, role: form.role };
+      if (isDeveloper && form.school_id) body.school_id = form.school_id;
 
+      const { data, error } = await supabase.functions.invoke('create-user', { body });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      setAddSuccess(`✅ ${form.full_name} created successfully! They can login with ${form.email}`);
-      setForm({ full_name: '', email: '', password: '', role: 'student' });
+      setAddSuccess(`✅ ${form.full_name} created successfully!`);
+      setForm({ full_name: '', email: '', password: '', role: canCreate[0] || 'student', school_id: '' });
       setTimeout(() => fetchUsers(), 500);
     } catch (error: any) {
       setAddError(error.message || 'Failed to create user');
@@ -126,14 +128,13 @@ const UsersPage = () => {
           <p className="text-muted-foreground text-sm mt-1">{users.length} total users</p>
         </div>
         {canCreate.length > 0 && (
-          <button onClick={() => { setShowAdd(true); setAddError(''); setAddSuccess(''); }}
+          <button onClick={() => { setShowAdd(true); setAddError(''); setAddSuccess(''); setForm(f => ({ ...f, role: canCreate[0] || 'student' })); }}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all">
             <Plus className="w-4 h-4" /> Add User
           </button>
         )}
       </div>
 
-      {/* Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Object.entries(roleCounts).map(([role, count]) => {
           const cfg = ROLE_CONFIG[role];
@@ -141,6 +142,7 @@ const UsersPage = () => {
           return (
             <div key={role} className="stat-card flex items-center gap-3 p-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                role === 'developer' ? 'bg-gradient-blue' :
                 role === 'super_admin' ? 'bg-gradient-purple' :
                 role === 'admin' ? 'bg-gradient-blue' :
                 role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
@@ -156,7 +158,6 @@ const UsersPage = () => {
         })}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -170,7 +171,6 @@ const UsersPage = () => {
         </select>
       </div>
 
-      {/* Users Table */}
       {loading ? (
         <div className="flex items-center justify-center h-40">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -195,6 +195,7 @@ const UsersPage = () => {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                            u.role === 'developer' ? 'bg-gradient-blue' :
                             u.role === 'super_admin' ? 'bg-gradient-purple' :
                             u.role === 'admin' ? 'bg-gradient-blue' :
                             u.role === 'teacher' ? 'bg-gradient-green' : 'bg-gradient-amber'
@@ -203,9 +204,7 @@ const UsersPage = () => {
                           </div>
                           <div>
                             <p className="font-semibold text-sm">{u.full_name}</p>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Mail className="w-3 h-3" />{u.email}
-                            </p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{u.email}</p>
                           </div>
                         </div>
                       </td>
@@ -214,9 +213,7 @@ const UsersPage = () => {
                           <cfg.icon className="w-3 h-3" />{cfg.label}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </td>
+                      <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
                           u.is_demo ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-green-100 text-green-700 border border-green-200'
@@ -228,12 +225,9 @@ const UsersPage = () => {
                   );
                 })}
                 {filteredUsers.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                      <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                      <p>No users found</p>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                    <Users className="w-12 h-12 mx-auto mb-3 opacity-30" /><p>No users found</p>
+                  </td></tr>
                 )}
               </tbody>
             </table>
@@ -241,38 +235,41 @@ const UsersPage = () => {
         </div>
       )}
 
-      {/* Add User Modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-card rounded-2xl shadow-xl border border-border w-full max-w-md">
+          <div className="bg-card rounded-2xl shadow-xl border border-border w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-6 border-b border-border">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-blue flex items-center justify-center">
-                  <UserCheck className="w-5 h-5 text-white" />
-                </div>
+                <div className="w-10 h-10 rounded-xl bg-gradient-blue flex items-center justify-center"><UserCheck className="w-5 h-5 text-white" /></div>
                 <h2 className="text-lg font-bold">Add New User</h2>
               </div>
-              <button onClick={() => setShowAdd(false)} className="p-2 rounded-xl hover:bg-muted transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <button onClick={() => setShowAdd(false)} className="p-2 rounded-xl hover:bg-muted"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="p-6 space-y-4">
               {addError && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{addError}</div>}
               {addSuccess && <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">{addSuccess}</div>}
+
+              {isDeveloper && (
+                <div>
+                  <label className="text-sm font-semibold mb-1.5 block flex items-center gap-1"><School className="w-3.5 h-3.5" /> Assign to School *</label>
+                  <select value={form.school_id} onChange={e => setForm(f => ({ ...f, school_id: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm">
+                    <option value="">Select school...</option>
+                    {schools.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Full Name *</label>
                 <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="e.g. John Smith"
                   className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
-
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Email (Login ID) *</label>
                 <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="e.g. john@school.com"
                   className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
-
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Password *</label>
                 <div className="relative">
@@ -283,7 +280,6 @@ const UsersPage = () => {
                   </button>
                 </div>
               </div>
-
               <div>
                 <label className="text-sm font-semibold mb-1.5 block">Role *</label>
                 <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
@@ -291,16 +287,14 @@ const UsersPage = () => {
                   {canCreate.map(r => <option key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</option>)}
                 </select>
               </div>
-
               <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs">
-                💡 Share email & password with the user so they can login to EduCloud LMS.
+                💡 Share email & password with the user so they can login.
               </div>
             </div>
-
             <div className="flex gap-3 p-6 border-t border-border">
-              <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 rounded-xl border border-border font-medium text-sm hover:bg-muted transition-colors">Cancel</button>
+              <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 rounded-xl border border-border font-medium text-sm hover:bg-muted">Cancel</button>
               <button onClick={handleAddUser} disabled={adding}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-blue text-white font-medium text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                className="flex-1 py-2.5 rounded-xl bg-gradient-blue text-white font-medium text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
                 {adding ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus className="w-4 h-4" />}
                 {adding ? 'Creating...' : 'Create User'}
               </button>

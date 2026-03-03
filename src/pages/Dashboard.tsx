@@ -1,63 +1,99 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart3, BookOpen, Users, FileText, PlayCircle, ClipboardList, ChevronRight } from 'lucide-react';
+import { BarChart3, BookOpen, Users, FileText, PlayCircle, ClipboardList, ChevronRight, School, Calendar, Clock } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 
 interface Stats {
   classes: number; subjects: number; chapters: number; materials: number;
-  teachers: number; students: number; exams: number; liveSessions: number;
+  teachers: number; students: number; exams: number; schools: number;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState<Stats>({ classes: 0, subjects: 0, chapters: 0, materials: 0, teachers: 0, students: 0, exams: 0, liveSessions: 0 });
+  const [stats, setStats] = useState<Stats>({ classes: 0, subjects: 0, chapters: 0, materials: 0, teachers: 0, students: 0, exams: 0, schools: 0 });
   const [loading, setLoading] = useState(true);
   const [subjectData, setSubjectData] = useState<any[]>([]);
   const [recentMaterials, setRecentMaterials] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any>(null);
+  const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
+
+  const isDeveloper = user?.role === 'developer';
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isTeacher = user?.role === 'teacher';
+  const isStudent = user?.role === 'student';
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [
-          { count: classCount }, { count: subjectCount }, { count: chapterCount },
-          { count: materialCount }, { count: examCount },
-          { data: teacherRoles }, { data: studentRoles },
-          { data: liveData }, { data: subjects }, { data: matList },
-        ] = await Promise.all([
+        const [clsR, subR, chpR, matR, exmR, matListR, schedR] = await Promise.all([
           supabase.from('classes').select('*', { count: 'exact', head: true }),
           supabase.from('subjects').select('*', { count: 'exact', head: true }),
           supabase.from('chapters').select('*', { count: 'exact', head: true }),
           supabase.from('materials').select('*', { count: 'exact', head: true }),
           supabase.from('exams').select('*', { count: 'exact', head: true }),
-          supabase.from('user_roles').select('*').eq('role', 'teacher'),
-          supabase.from('user_roles').select('*').eq('role', 'student'),
-          supabase.from('live_sessions').select('*').eq('status', 'active').limit(1),
-          supabase.from('subjects').select('id, name, color'),
           supabase.from('materials').select('*').order('created_at', { ascending: false }).limit(5),
+          supabase.from('schedules').select('*').gte('scheduled_at', new Date().toISOString()).order('scheduled_at').limit(5),
         ]);
 
-        setStats({
-          classes: classCount || 0, subjects: subjectCount || 0, chapters: chapterCount || 0,
-          materials: materialCount || 0, exams: examCount || 0,
-          teachers: teacherRoles?.length || 0, students: studentRoles?.length || 0,
-          liveSessions: 0,
-        });
-
-        if (subjects) {
-          const chapCounts = await Promise.all(subjects.map(async s => {
-            const { count } = await supabase.from('chapters').select('*', { count: 'exact', head: true }).eq('subject_id', s.id);
-            return { name: s.name, value: count || 0 };
-          }));
-          setSubjectData(chapCounts.filter(c => c.value > 0));
+        let teachCount = 0, studCount = 0, schoolCount = 0;
+        if (isDeveloper) {
+          const { count: sc } = await supabase.from('schools').select('*', { count: 'exact', head: true });
+          schoolCount = sc || 0;
+        } else {
+          const [{ data: teachR }, { data: studR }] = await Promise.all([
+            supabase.from('user_roles').select('*').eq('role', 'teacher'),
+            supabase.from('user_roles').select('*').eq('role', 'student'),
+          ]);
+          teachCount = teachR?.length || 0;
+          studCount = studR?.length || 0;
         }
 
-        setRecentMaterials(matList || []);
-        setActiveSession(liveData?.[0] || null);
+        let activeSessionData = null;
+        if (isStudent) {
+          const { data } = await supabase.from('live_sessions').select('*').eq('status', 'active').limit(1);
+          activeSessionData = data?.[0] || null;
+        }
+
+        const [clsR, subR, chpR, matR, exmR, matListR, schedR] = results;
+
+        if (isDeveloper) {
+          const [schoolsR, profilesR] = [results[7], results[8]];
+          setStats({
+            classes: clsR.count || 0, subjects: subR.count || 0, chapters: chpR.count || 0,
+            materials: matR.count || 0, exams: exmR.count || 0,
+            teachers: 0, students: 0, schools: schoolsR?.count || 0,
+          });
+        } else {
+          const [teachR, studR] = [results[7], results[8]];
+          setStats({
+            classes: clsR.count || 0, subjects: subR.count || 0, chapters: chpR.count || 0,
+            materials: matR.count || 0, exams: exmR.count || 0,
+            teachers: teachR?.data?.length || 0, students: studR?.data?.length || 0, schools: 0,
+          });
+        }
+
+        setRecentMaterials(matListR.data || []);
+        setUpcomingEvents(schedR.data || []);
+
+        if (isStudent && results[9]) {
+          setActiveSession(results[9]?.data?.[0] || null);
+        }
+
+        // Subject chart data
+        if (subR.count && subR.count > 0) {
+          const { data: subs } = await supabase.from('subjects').select('id, name');
+          if (subs) {
+            const chapCounts = await Promise.all(subs.map(async s => {
+              const { count } = await supabase.from('chapters').select('*', { count: 'exact', head: true }).eq('subject_id', s.id);
+              return { name: s.name, value: count || 0 };
+            }));
+            setSubjectData(chapCounts.filter(c => c.value > 0));
+          }
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {
@@ -78,11 +114,12 @@ const Dashboard = () => {
     </div>
   );
 
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
-  const isTeacher = user?.role === 'teacher';
-  const isStudent = user?.role === 'student';
-
-  const statCards = isStudent ? [
+  const statCards = isDeveloper ? [
+    { label: 'Total Schools', value: stats.schools, icon: School, gradient: 'bg-gradient-blue' },
+    { label: 'Total Classes', value: stats.classes, icon: BookOpen, gradient: 'bg-gradient-green' },
+    { label: 'Total Subjects', value: stats.subjects, icon: FileText, gradient: 'bg-gradient-purple' },
+    { label: 'Total Materials', value: stats.materials, icon: BarChart3, gradient: 'bg-gradient-amber' },
+  ] : isStudent ? [
     { label: 'My Subjects', value: stats.subjects, icon: BookOpen, gradient: 'bg-gradient-blue' },
     { label: 'Chapters', value: stats.chapters, icon: FileText, gradient: 'bg-gradient-green' },
     { label: 'Materials', value: stats.materials, icon: BarChart3, gradient: 'bg-gradient-amber' },
@@ -109,7 +146,8 @@ const Dashboard = () => {
           <p className="text-blue-200 text-sm font-medium mb-1">{greeting()},</p>
           <h1 className="text-2xl font-bold" style={{ fontFamily: 'Poppins,sans-serif' }}>{user?.full_name} 👋</h1>
           <p className="text-blue-200 mt-1 text-sm">
-            Welcome to EduCloud LMS — {isStudent ? 'Continue learning today!' : 'Manage your classroom efficiently.'}
+            {isDeveloper ? 'Manage schools and platform analytics.' :
+             isStudent ? 'Continue learning today!' : 'Manage your classroom efficiently.'}
           </p>
         </div>
       </div>
@@ -125,6 +163,30 @@ const Dashboard = () => {
           </div>
         ))}
       </div>
+
+      {/* Upcoming events for all roles */}
+      {upcomingEvents.length > 0 && (
+        <div className="bg-card rounded-2xl border border-border shadow-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2"><Clock className="w-4 h-4 text-primary" /> Upcoming Events</h3>
+            <Link to="/calendar" className="text-primary text-sm font-medium flex items-center gap-1 hover:underline">View Calendar <ChevronRight className="w-4 h-4" /></Link>
+          </div>
+          <div className="space-y-2">
+            {upcomingEvents.map(ev => (
+              <div key={ev.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border/50">
+                <div className="w-2 h-8 rounded-full" style={{ backgroundColor: ev.color || '#3B82F6' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{ev.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(ev.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {new Date(ev.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{ev.type}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isTeacher && (
         <div className="grid lg:grid-cols-3 gap-4">
@@ -176,7 +238,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {isAdmin && subjectData.length > 0 && (
+      {(isAdmin || isDeveloper) && subjectData.length > 0 && (
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="stat-card">
             <h3 className="font-semibold text-foreground mb-4">Content by Subject</h3>

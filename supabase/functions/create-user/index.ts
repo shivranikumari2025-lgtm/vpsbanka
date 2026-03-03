@@ -13,7 +13,6 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    // Verify the requesting user via in-code JWT validation
     const authHeader = req.headers.get('authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
@@ -29,7 +28,6 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
     }
 
-    // Admin client for privileged operations
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get requesting user role
@@ -41,15 +39,23 @@ Deno.serve(async (req) => {
 
     const requestingRole = roleData?.role;
 
+    // Get requesting user's school_id
+    const { data: reqProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('school_id')
+      .eq('user_id', requestingUser.id)
+      .single();
+
     const body = await req.json();
-    const { email, password, full_name, role } = body;
+    const { email, password, full_name, role, school_id } = body;
 
     if (!email || !password || !full_name || !role) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400, headers: corsHeaders });
     }
 
-    // Role permission check
+    // Role permission check - developer can create admins/super_admins
     const allowedToCreate: Record<string, string[]> = {
+      developer: ['super_admin', 'admin', 'teacher', 'student'],
       super_admin: ['admin', 'teacher', 'student'],
       admin: ['teacher', 'student'],
       teacher: ['student'],
@@ -58,6 +64,9 @@ Deno.serve(async (req) => {
     if (!requestingRole || !allowedToCreate[requestingRole]?.includes(role)) {
       return new Response(JSON.stringify({ error: `You don't have permission to create ${role} accounts` }), { status: 403, headers: corsHeaders });
     }
+
+    // Determine school_id: developer passes it explicitly, others inherit their own
+    const assignedSchoolId = requestingRole === 'developer' ? (school_id || null) : (reqProfile?.school_id || null);
 
     // Create the auth user
     const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
@@ -71,13 +80,14 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: createError.message }), { status: 400, headers: corsHeaders });
     }
 
-    // Insert profile
+    // Insert profile with school_id
     await supabaseAdmin.from('profiles').insert({
       user_id: newUser.user!.id,
       email,
       full_name,
       role,
       is_demo: false,
+      school_id: assignedSchoolId,
     });
 
     // Insert user role
