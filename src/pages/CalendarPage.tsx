@@ -29,7 +29,8 @@ const CalendarPage = () => {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
 
-  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'super_admin';
+  // Teachers, admins, and developers can schedule events
+  const canSchedule = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'developer';
 
   const fetchSchedules = async () => {
     try {
@@ -72,6 +73,7 @@ const CalendarPage = () => {
         title: form.title, description: form.description || null, type: form.type,
         scheduled_at, duration_minutes: form.duration_minutes, meeting_link: form.meeting_link || null,
         color: cfg?.color || '#3B82F6', teacher_id: user?.user_id,
+        school_id: (user as any)?.school_id || null,
       } as any);
       if (error) throw error;
       setShowAdd(false);
@@ -99,9 +101,11 @@ const CalendarPage = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Calendar & Schedule</h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage classes, meetings & challenges</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            {user?.role === 'student' ? 'View your class schedule and events' : 'Manage classes, meetings & challenges'}
+          </p>
         </div>
-        {isTeacher && (
+        {canSchedule && (
           <button onClick={() => { setShowAdd(true); setAddError(''); }}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-blue text-white rounded-xl font-medium text-sm shadow-glow-blue hover:opacity-90 transition-all">
             <Plus className="w-4 h-4" /> Schedule Event
@@ -130,9 +134,15 @@ const CalendarPage = () => {
               const today = new Date();
               const isToday = today.getDate() === day && today.getMonth() === currentDate.getMonth() && today.getFullYear() === currentDate.getFullYear();
               const isSelected = selectedDate?.getDate() === day && selectedDate?.getMonth() === currentDate.getMonth();
+              const hasEvents = daySchedules.length > 0;
               return (
                 <button key={day} onClick={() => setSelectedDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))}
-                  className={`relative min-h-[60px] p-1.5 rounded-xl text-left transition-all border ${isSelected ? 'border-primary bg-primary/10' : isToday ? 'border-primary/30 bg-primary/5' : 'border-transparent hover:border-border hover:bg-muted/30'}`}>
+                  className={`relative min-h-[60px] p-1.5 rounded-xl text-left transition-all border ${
+                    isSelected ? 'border-primary bg-primary/10' :
+                    hasEvents ? 'border-primary/30 bg-primary/5' :
+                    isToday ? 'border-primary/20 bg-primary/5' :
+                    'border-transparent hover:border-border hover:bg-muted/30'
+                  }`}>
                   <span className={`text-xs font-semibold w-6 h-6 rounded-full flex items-center justify-center ${isToday ? 'bg-primary text-white' : ''}`}>{day}</span>
                   <div className="space-y-0.5 mt-1">
                     {daySchedules.slice(0, 2).map((s, i) => (
@@ -157,8 +167,10 @@ const CalendarPage = () => {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm">{s.title}</p>
                         <p className="text-xs text-muted-foreground">{new Date(s.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} · {s.duration_minutes} min</p>
+                        {s.meeting_link && <a href={s.meeting_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 mt-0.5 hover:underline"><LinkIcon className="w-3 h-3" /> Join Link</a>}
+                        {s.description && <p className="text-xs text-muted-foreground mt-0.5">{s.description}</p>}
                       </div>
-                      {isTeacher && <button onClick={() => deleteSchedule(s.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
+                      {canSchedule && <button onClick={() => deleteSchedule(s.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
                   );
                 })}

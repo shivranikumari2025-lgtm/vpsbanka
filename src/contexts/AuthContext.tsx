@@ -6,9 +6,10 @@ interface Profile {
   user_id: string;
   email: string;
   full_name: string;
-  role: 'super_admin' | 'admin' | 'teacher' | 'student';
+  role: 'developer' | 'super_admin' | 'admin' | 'teacher' | 'student';
   avatar_url?: string;
   is_demo: boolean;
+  school_id?: string;
 }
 
 interface AuthContextType {
@@ -26,7 +27,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (userId: string) => {
     try {
-      // Get role from user_roles (secure, server-side)
       const { data: roleData } = await supabase
         .from('user_roles')
         .select('role')
@@ -43,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser({
           ...profile,
           role: (roleData?.role || profile.role) as Profile['role'],
+          school_id: (profile as any).school_id || undefined,
         });
       } else {
         setUser(null);
@@ -53,10 +54,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // Listen for auth changes FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        // Use setTimeout to avoid Supabase deadlock
         setTimeout(() => fetchProfile(session.user.id), 0);
       } else {
         setUser(null);
@@ -64,7 +63,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    // Then check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         fetchProfile(session.user.id);

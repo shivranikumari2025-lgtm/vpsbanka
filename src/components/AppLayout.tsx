@@ -3,12 +3,19 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   GraduationCap, LayoutDashboard, BookOpen, Users, Settings,
   LogOut, ChevronLeft, ChevronRight, PlayCircle, FileText,
-  BarChart3, School, Upload, ClipboardList, Bell, Search, Menu, Calendar
+  BarChart3, School, Upload, ClipboardList, Bell, Search, Menu, Calendar, Code2
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
-const ROLE_MENUS = {
+const ROLE_MENUS: Record<string, { label: string; icon: React.ElementType; path: string }[]> = {
+  developer: [
+    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { label: 'Schools', icon: School, path: '/schools' },
+    { label: 'All Users', icon: Users, path: '/users' },
+    { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+    { label: 'Settings', icon: Settings, path: '/settings' },
+  ],
   super_admin: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Schools', icon: School, path: '/schools' },
@@ -21,6 +28,7 @@ const ROLE_MENUS = {
     { label: 'Classes', icon: BookOpen, path: '/classes' },
     { label: 'Content', icon: FileText, path: '/content' },
     { label: 'Users', icon: Users, path: '/users' },
+    { label: 'Calendar', icon: Calendar, path: '/calendar' },
     { label: 'Analytics', icon: BarChart3, path: '/analytics' },
     { label: 'Settings', icon: Settings, path: '/settings' },
   ],
@@ -39,23 +47,31 @@ const ROLE_MENUS = {
     { label: 'Live Class', icon: PlayCircle, path: '/live-class' },
     { label: 'Calendar', icon: Calendar, path: '/calendar' },
     { label: 'Exams', icon: ClipboardList, path: '/exams' },
-    { label: 'Results', icon: BarChart3, path: '/results' },
   ],
 };
 
-
-const ROLE_COLORS = {
+const ROLE_COLORS: Record<string, string> = {
+  developer: 'from-cyan-500 to-blue-600',
   super_admin: 'from-violet-500 to-purple-600',
   admin: 'from-blue-500 to-indigo-600',
   teacher: 'from-emerald-500 to-teal-600',
   student: 'from-amber-500 to-orange-600',
 };
 
-const ROLE_LABELS = {
+const ROLE_LABELS: Record<string, string> = {
+  developer: 'Developer',
   super_admin: 'Super Admin',
   admin: 'School Admin',
   teacher: 'Teacher',
   student: 'Student',
+};
+
+const ROLE_EMOJIS: Record<string, string> = {
+  developer: '💻',
+  super_admin: '👑',
+  admin: '🏫',
+  teacher: '👨‍🏫',
+  student: '🎓',
 };
 
 interface AppLayoutProps {
@@ -80,7 +96,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-gradient-sidebar">
-      {/* Logo */}
       <div className={cn(
         "flex items-center gap-3 p-4 border-b border-white/10",
         collapsed && "justify-center p-4"
@@ -96,14 +111,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         )}
       </div>
 
-      {/* User Profile */}
       {!collapsed && (
         <div className="p-4 border-b border-white/10">
           <div className={cn("flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r", roleColor, "bg-opacity-20")}>
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-lg">
-                {role === 'super_admin' ? '👑' : role === 'admin' ? '🏫' : role === 'teacher' ? '👨‍🏫' : '🎓'}
-              </span>
+              <span className="text-lg">{ROLE_EMOJIS[role]}</span>
             </div>
             <div className="min-w-0">
               <p className="text-white font-semibold text-sm truncate">{user?.full_name}</p>
@@ -115,7 +127,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         </div>
       )}
 
-      {/* Navigation */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scroll">
         {menuItems.map((item) => (
           <NavLink
@@ -135,7 +146,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         ))}
       </nav>
 
-      {/* Collapse & Logout */}
       <div className="p-3 border-t border-white/10 space-y-1">
         <button
           onClick={handleSignOut}
@@ -159,7 +169,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Desktop Sidebar */}
       <aside className={cn(
         "hidden lg:flex flex-col flex-shrink-0 transition-all duration-300",
         collapsed ? "w-[72px]" : "w-[260px]"
@@ -167,7 +176,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <SidebarContent />
       </aside>
 
-      {/* Mobile Sidebar Overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/60" onClick={() => setMobileOpen(false)} />
@@ -177,9 +185,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         </div>
       )}
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
         <header className="flex items-center justify-between px-6 py-4 bg-card border-b border-border shadow-sm flex-shrink-0">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen(true)} className="lg:hidden p-2 rounded-lg hover:bg-muted transition-colors">
@@ -212,7 +218,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </header>
 
-        {/* Page Content */}
         <main className="flex-1 overflow-y-auto custom-scroll p-6 bg-background">
           {children}
         </main>
