@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart3, BookOpen, Users, FileText, PlayCircle, ClipboardList, ChevronRight, School, Calendar, Clock } from 'lucide-react';
+import { BarChart3, BookOpen, Users, FileText, PlayCircle, ClipboardList, ChevronRight, School, Clock } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 
@@ -44,12 +44,12 @@ const Dashboard = () => {
           const { count: sc } = await supabase.from('schools').select('*', { count: 'exact', head: true });
           schoolCount = sc || 0;
         } else {
-          const [{ data: teachR }, { data: studR }] = await Promise.all([
+          const [teachR, studR] = await Promise.all([
             supabase.from('user_roles').select('*').eq('role', 'teacher'),
             supabase.from('user_roles').select('*').eq('role', 'student'),
           ]);
-          teachCount = teachR?.length || 0;
-          studCount = studR?.length || 0;
+          teachCount = teachR.data?.length || 0;
+          studCount = studR.data?.length || 0;
         }
 
         let activeSessionData = null;
@@ -58,30 +58,15 @@ const Dashboard = () => {
           activeSessionData = data?.[0] || null;
         }
 
-        const [clsR, subR, chpR, matR, exmR, matListR, schedR] = results;
-
-        if (isDeveloper) {
-          const [schoolsR, profilesR] = [results[7], results[8]];
-          setStats({
-            classes: clsR.count || 0, subjects: subR.count || 0, chapters: chpR.count || 0,
-            materials: matR.count || 0, exams: exmR.count || 0,
-            teachers: 0, students: 0, schools: schoolsR?.count || 0,
-          });
-        } else {
-          const [teachR, studR] = [results[7], results[8]];
-          setStats({
-            classes: clsR.count || 0, subjects: subR.count || 0, chapters: chpR.count || 0,
-            materials: matR.count || 0, exams: exmR.count || 0,
-            teachers: teachR?.data?.length || 0, students: studR?.data?.length || 0, schools: 0,
-          });
-        }
+        setStats({
+          classes: clsR.count || 0, subjects: subR.count || 0, chapters: chpR.count || 0,
+          materials: matR.count || 0, exams: exmR.count || 0,
+          teachers: teachCount, students: studCount, schools: schoolCount,
+        });
 
         setRecentMaterials(matListR.data || []);
         setUpcomingEvents(schedR.data || []);
-
-        if (isStudent && results[9]) {
-          setActiveSession(results[9]?.data?.[0] || null);
-        }
+        setActiveSession(activeSessionData);
 
         // Subject chart data
         if (subR.count && subR.count > 0) {
@@ -164,7 +149,6 @@ const Dashboard = () => {
         ))}
       </div>
 
-      {/* Upcoming events for all roles */}
       {upcomingEvents.length > 0 && (
         <div className="bg-card rounded-2xl border border-border shadow-card p-5">
           <div className="flex items-center justify-between mb-4">
