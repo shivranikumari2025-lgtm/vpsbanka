@@ -7,6 +7,12 @@ const corsHeaders = {
 
 const DEMO_USERS = [
   {
+    email: 'developer@gnail.com',
+    password: 'Developer@265',
+    full_name: 'Platform Developer',
+    role: 'developer' as const,
+  },
+  {
     email: 'superadmin@schoollms.com',
     password: 'SuperAdmin@123',
     full_name: 'Super Administrator',
@@ -46,7 +52,6 @@ Deno.serve(async (req) => {
     const results = [];
 
     for (const user of DEMO_USERS) {
-      // Check if user already exists
       const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
       const existingUser = existingUsers?.users?.find(u => u.email === user.email);
 
@@ -56,7 +61,6 @@ Deno.serve(async (req) => {
         userId = existingUser.id;
         results.push({ email: user.email, action: 'already_exists', id: userId });
       } else {
-        // Create user
         const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
           email: user.email,
           password: user.password,
@@ -89,11 +93,10 @@ Deno.serve(async (req) => {
       }, { onConflict: 'user_id,role' });
     }
 
-    // Seed demo data - classes, subjects, chapters
+    // Seed demo data
     const { data: existingClasses } = await supabaseAdmin.from('classes').select('id').limit(1);
     
     if (!existingClasses || existingClasses.length === 0) {
-      // Get admin user id
       const { data: adminProfile } = await supabaseAdmin
         .from('profiles')
         .select('user_id')
@@ -102,7 +105,6 @@ Deno.serve(async (req) => {
       
       const adminId = adminProfile?.user_id;
 
-      // Create classes
       const classData = [
         { name: 'Class 9', description: 'Secondary School - Grade 9', grade_level: 9, created_by: adminId },
         { name: 'Class 10', description: 'Secondary School - Grade 10', grade_level: 10, created_by: adminId },
@@ -113,7 +115,6 @@ Deno.serve(async (req) => {
       const { data: classes } = await supabaseAdmin.from('classes').insert(classData).select();
 
       if (classes && classes.length > 0) {
-        // Get teacher id
         const { data: teacherProfile } = await supabaseAdmin
           .from('profiles')
           .select('user_id')
