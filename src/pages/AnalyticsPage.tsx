@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { BarChart3, TrendingUp, BookOpen, Users, FileText, Trophy } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const AnalyticsPage = () => {
+  const { user } = useAuth();
   const [stats, setStats] = useState({ classes: 0, subjects: 0, chapters: 0, materials: 0, teachers: 0, students: 0 });
   const [subjectData, setSubjectData] = useState<any[]>([]);
   const [materialTypeData, setMaterialTypeData] = useState<any[]>([]);
@@ -13,24 +15,37 @@ const AnalyticsPage = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!user) return;
+      const isDev = user.role === 'developer';
+      const schoolId = user.school_id;
+
       try {
+        // Use profiles table for teacher/student counts (school-scoped)
+        let teacherQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'teacher');
+        let studentQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student');
+        
+        if (!isDev && schoolId) {
+          teacherQuery = teacherQuery.eq('school_id', schoolId);
+          studentQuery = studentQuery.eq('school_id', schoolId);
+        }
+
         const [
           { count: clsCount }, { count: subCount }, { count: chpCount },
-          { data: mats }, { data: teachRoles }, { data: studRoles },
+          { data: mats }, { count: teachCount }, { count: studCount },
           { data: subjects },
         ] = await Promise.all([
           supabase.from('classes').select('*', { count: 'exact', head: true }),
           supabase.from('subjects').select('*', { count: 'exact', head: true }),
           supabase.from('chapters').select('*', { count: 'exact', head: true }),
           supabase.from('materials').select('type'),
-          supabase.from('user_roles').select('*').eq('role', 'teacher'),
-          supabase.from('user_roles').select('*').eq('role', 'student'),
+          teacherQuery,
+          studentQuery,
           supabase.from('subjects').select('id, name'),
         ]);
 
         setStats({
           classes: clsCount || 0, subjects: subCount || 0, chapters: chpCount || 0,
-          materials: mats?.length || 0, teachers: teachRoles?.length || 0, students: studRoles?.length || 0,
+          materials: mats?.length || 0, teachers: teachCount || 0, students: studCount || 0,
         });
 
         // Chapters per subject
@@ -55,7 +70,7 @@ const AnalyticsPage = () => {
       }
     };
     fetchData();
-  }, []);
+  }, [user]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
