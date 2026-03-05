@@ -10,6 +10,7 @@ interface Profile {
   avatar_url?: string;
   is_demo: boolean;
   school_id?: string;
+  class_id?: string;
 }
 
 interface AuthContextType {
@@ -44,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...profile,
           role: (roleData?.role || profile.role) as Profile['role'],
           school_id: (profile as any).school_id || undefined,
+          class_id: (profile as any).class_id || undefined,
         });
       } else {
         setUser(null);

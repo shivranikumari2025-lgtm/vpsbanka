@@ -26,7 +26,8 @@ const UsersPage = () => {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student', school_id: '' });
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student', school_id: '', class_id: '' });
+  const [availableClasses, setAvailableClasses] = useState<{id: string; name: string}[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
@@ -80,6 +81,15 @@ const UsersPage = () => {
 
   useEffect(() => { fetchUsers(); }, []);
 
+  // Load classes when creating a student
+  useEffect(() => {
+    if (form.role === 'student' && showAdd) {
+      supabase.from('classes').select('id, name').order('name').then(({ data }) => {
+        setAvailableClasses(data || []);
+      });
+    }
+  }, [form.role, showAdd]);
+
   const handleAddUser = async () => {
     if (!form.full_name.trim() || !form.email.trim() || !form.password.trim()) {
       setAddError('All fields are required'); return;
@@ -93,13 +103,14 @@ const UsersPage = () => {
     try {
       const body: any = { email: form.email, password: form.password, full_name: form.full_name, role: form.role };
       if (isDeveloper && form.school_id) body.school_id = form.school_id;
+      if (form.role === 'student' && form.class_id) body.class_id = form.class_id;
 
       const { data, error } = await supabase.functions.invoke('create-user', { body });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
       setAddSuccess(`✅ ${form.full_name} created successfully!`);
-      setForm({ full_name: '', email: '', password: '', role: canCreate[0] || 'student', school_id: '' });
+      setForm({ full_name: '', email: '', password: '', role: canCreate[0] || 'student', school_id: '', class_id: '' });
       setTimeout(() => fetchUsers(), 500);
     } catch (error: any) {
       setAddError(error.message || 'Failed to create user');
@@ -287,6 +298,16 @@ const UsersPage = () => {
                   {canCreate.map(r => <option key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</option>)}
                 </select>
               </div>
+              {form.role === 'student' && availableClasses.length > 0 && (
+                <div>
+                  <label className="text-sm font-semibold mb-1.5 block flex items-center gap-1"><GraduationCap className="w-3.5 h-3.5" /> Assign to Class *</label>
+                  <select value={form.class_id} onChange={e => setForm(f => ({ ...f, class_id: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm">
+                    <option value="">Select class...</option>
+                    {availableClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs">
                 💡 Share email & password with the user so they can login.
               </div>
