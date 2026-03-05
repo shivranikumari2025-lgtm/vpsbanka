@@ -339,6 +339,7 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          class_id: string | null
           created_at: string
           email: string
           full_name: string
@@ -351,6 +352,7 @@ export type Database = {
         }
         Insert: {
           avatar_url?: string | null
+          class_id?: string | null
           created_at?: string
           email: string
           full_name: string
@@ -363,6 +365,7 @@ export type Database = {
         }
         Update: {
           avatar_url?: string | null
+          class_id?: string | null
           created_at?: string
           email?: string
           full_name?: string
@@ -374,6 +377,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "profiles_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "profiles_school_id_fkey"
             columns: ["school_id"]

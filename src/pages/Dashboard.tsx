@@ -43,13 +43,14 @@ const Dashboard = () => {
         if (isDeveloper) {
           const { count: sc } = await supabase.from('schools').select('*', { count: 'exact', head: true });
           schoolCount = sc || 0;
-        } else {
+        } else if (user?.school_id) {
+          // Count teachers and students only within the current user's school
           const [teachR, studR] = await Promise.all([
-            supabase.from('user_roles').select('*').eq('role', 'teacher'),
-            supabase.from('user_roles').select('*').eq('role', 'student'),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('school_id', user.school_id).eq('role', 'teacher'),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('school_id', user.school_id).eq('role', 'student'),
           ]);
-          teachCount = teachR.data?.length || 0;
-          studCount = studR.data?.length || 0;
+          teachCount = teachR.count || 0;
+          studCount = studR.count || 0;
         }
 
         let activeSessionData = null;

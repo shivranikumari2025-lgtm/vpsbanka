@@ -37,10 +37,31 @@ const ExamPage = () => {
 
   const fetchExams = useCallback(async () => {
     try {
-      const { data } = await supabase.from('exams').select('*').order('created_at', { ascending: false });
+      let query = supabase.from('exams').select('*').order('created_at', { ascending: false });
+      
+      // Students only see exams for their class (via chapter → subject → class chain)
+      if (user?.role === 'student' && user?.class_id) {
+        // Get subjects for student's class
+        const { data: subjects } = await supabase.from('subjects').select('id').eq('class_id', user.class_id);
+        if (subjects && subjects.length > 0) {
+          const subjectIds = subjects.map(s => s.id);
+          // Get chapters for those subjects
+          const { data: chapters } = await supabase.from('chapters').select('id').in('subject_id', subjectIds);
+          if (chapters && chapters.length > 0) {
+            const chapterIds = chapters.map(c => c.id);
+            query = query.in('chapter_id', chapterIds);
+          } else {
+            setExams([]); setLoading(false); return;
+          }
+        } else {
+          setExams([]); setLoading(false); return;
+        }
+      }
+      
+      const { data } = await query;
       setExams((data as ExamData[]) || []);
     } catch { /* ignore */ } finally { setLoading(false); }
-  }, []);
+  }, [user]);
 
   useEffect(() => { fetchExams(); }, [fetchExams]);
 

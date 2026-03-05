@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       .single();
 
     const body = await req.json();
-    const { email, password, full_name, role, school_id } = body;
+    const { email, password, full_name, role, school_id, class_id } = body;
 
     if (!email || !password || !full_name || !role) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400, headers: corsHeaders });
@@ -80,15 +80,19 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: createError.message }), { status: 400, headers: corsHeaders });
     }
 
-    // Insert profile with school_id
-    await supabaseAdmin.from('profiles').insert({
+    // Insert profile with school_id and optional class_id for students
+    const profileData: any = {
       user_id: newUser.user!.id,
       email,
       full_name,
       role,
       is_demo: false,
       school_id: assignedSchoolId,
-    });
+    };
+    if (role === 'student' && class_id) {
+      profileData.class_id = class_id;
+    }
+    await supabaseAdmin.from('profiles').insert(profileData);
 
     // Insert user role
     await supabaseAdmin.from('user_roles').insert({
